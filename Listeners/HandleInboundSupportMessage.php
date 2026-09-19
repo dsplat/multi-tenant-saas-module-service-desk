@@ -9,16 +9,22 @@ use MultiTenantSaas\Context\TenantContext;
 use MultiTenantSaas\Events\MessageReceived;
 use MultiTenantSaas\Modules\Conversation\Models\Conversation;
 use MultiTenantSaas\Modules\ServiceDesk\Events\SupportMessageReceived;
+use MultiTenantSaas\Modules\ServiceDesk\Services\IdentityBridgeService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportSessionService;
 use MultiTenantSaas\Scopes\TenantScope;
 
 /**
  * 客服入站接线：把渠道入站消息接入客服场景
  *
- * 挂框架的 `MessageReceived`（渠道无关的入站总事件），职责三件：
+ * 挂框架的 `MessageReceived`（渠道无关的入站总事件），职责四件：
  *   1. **识别**：这条消息是否属于客服场景（渠道 + 会话类型）
  *   2. **初始化**：补齐租户上下文与接待态镜像（新会话默认由 AI 接待）
- *   3. **派发**：发出 SupportMessageReceived，供后续能力挂载
+ *   3. **身份绑定**：若此前有「待绑定」（用户在进入会话事件里带来了 scene 短码），
+ *      此刻会话已存在，把身份落到会话上
+ *   4. **派发**：发出 SupportMessageReceived，供后续能力挂载
+ *
+ * 第 3 步为什么在这里而不是事件监听器里：会话由 ConversationRouter 在**首条消息**
+ * 时才创建，而 enter_session 事件通常早于首条消息，那时无会话可绑 —— 两块必须分开。
  *
  * 有意**不做**的事（各自有归属，不塞进本监听器）：
  *   - AI 应答 → M1-D，挂 SupportMessageReceived，走队列（webhook 要求收到即 ACK）
@@ -30,7 +36,10 @@ use MultiTenantSaas\Scopes\TenantScope;
  */
 class HandleInboundSupportMessage
 {
-    public function __construct(private readonly SupportSessionService $sessions) {}
+    public function __construct(
+        private readonly SupportSessionService $sessions,
+        private readonly IdentityBridgeService $identity,
+    ) {}
 
     public function handle(MessageReceived $event): void
     {
@@ -59,6 +68,8 @@ class HandleInboundSupportMessage
                 $this->sessions->ensureSession($conversation);
             }
 
+            $this->applyPendingIdentity($conversation, $tenantId);
+
             SupportMessageReceived::dispatch($conversation, $event->message, $channel);
         } catch (\Throwable $e) {
             // 接线失败不阻断既有落库链路（消息已入库），记录后可观测
@@ -75,6 +86,34 @@ class HandleInboundSupportMessage
                 TenantContext::setTenantId($previousTenantId);
             }
         }
+    }
+
+    /**
+     * 落身份绑定（若有待绑定）
+     *
+     * 用户点带参链接进入会话时，短码已在 HandleChannelEvent 里兑换成 user_id 并存为
+     * 待绑定；此刻会话刚被创建，是把它落到 conversations.created_by 的时机。
+     */
+    private function applyPendingIdentity(Conversation $conversation, int $tenantId): void
+    {
+        $externalConvId = (string) (($conversation->metadata ?? [])['external_conv_id'] ?? '');
+
+        if ($externalConvId === '') {
+            return;
+        }
+
+        $pending = $this->identity->pending($tenantId, $externalConvId);
+
+        if ($pending === null) {
+            return;
+        }
+
+        $userId = (int) ($pending['user_id'] ?? 0);
+
+        // 无论绑定成功与否都清掉待绑定：留着只会让后续换人进入时贴回旧绑定。
+        // 失败路径（已绑到别人）由 linkConversation 内部记日志。
+        $this->identity->linkConversation($conversation, $userId, $pending['source'] ?? null);
+        $this->identity->forgetPending($tenantId, $externalConvId);
     }
 
     /**

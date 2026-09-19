@@ -5,9 +5,20 @@ declare(strict_types=1);
 namespace MultiTenantSaas\Modules\ServiceDesk;
 
 use Illuminate\Support\Facades\Event;
+use MultiTenantSaas\Events\ChannelEventReceived;
 use MultiTenantSaas\Events\MessageReceived;
 use MultiTenantSaas\Modules\Contracts\ModuleServiceProvider;
+use MultiTenantSaas\Modules\ServiceDesk\Events\SupportHandoffRequested;
+use MultiTenantSaas\Modules\ServiceDesk\Events\SupportMessageReceived;
+use MultiTenantSaas\Modules\ServiceDesk\Listeners\HandleChannelEvent;
 use MultiTenantSaas\Modules\ServiceDesk\Listeners\HandleInboundSupportMessage;
+use MultiTenantSaas\Modules\ServiceDesk\Listeners\NotifyHandoffTargets;
+use MultiTenantSaas\Modules\ServiceDesk\Listeners\RespondToSupportMessage;
+use MultiTenantSaas\Modules\ServiceDesk\Services\HandoffService;
+use MultiTenantSaas\Modules\ServiceDesk\Services\IdentityBridgeService;
+use MultiTenantSaas\Modules\ServiceDesk\Services\RiskGuard;
+use MultiTenantSaas\Modules\ServiceDesk\Services\SceneCodeService;
+use MultiTenantSaas\Modules\ServiceDesk\Services\SupportReplyService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportSessionService;
 
 /**
@@ -35,11 +46,19 @@ class ServiceDeskServiceProvider extends ModuleServiceProvider
     protected function registerModuleBindings(): void
     {
         $this->app->singleton(SupportSessionService::class);
+        $this->app->singleton(SceneCodeService::class);
+        $this->app->singleton(IdentityBridgeService::class);
+        $this->app->singleton(RiskGuard::class);
+        $this->app->singleton(HandoffService::class);
+        $this->app->singleton(SupportReplyService::class);
     }
 
     protected function bootModule(): void
     {
         $this->registerInboundWiring();
+        $this->registerChannelEventWiring();
+        $this->registerReplyWiring();
+        $this->registerHandoffNotificationWiring();
     }
 
     /**
@@ -54,6 +73,50 @@ class ServiceDeskServiceProvider extends ModuleServiceProvider
         Event::listen(
             MessageReceived::class,
             HandleInboundSupportMessage::class,
+        );
+    }
+
+    /**
+     * 客服渠道事件接线
+     *
+     * 挂框架的 ChannelEventReceived（渠道无关事件总入口）：
+     *   enter_session        → 身份桥接（scene 短码兑换）
+     *   session_status_change → 接待态镜像
+     *
+     * 同 MessageReceived 的处理方式：事件由渠道层搬运，语义由本模块解释。
+     */
+    private function registerChannelEventWiring(): void
+    {
+        Event::listen(
+            ChannelEventReceived::class,
+            HandleChannelEvent::class,
+        );
+    }
+
+    /**
+     * 应答接线
+     *
+     * SupportMessageReceived → 入队（渠道回调要求收到即 ACK，模型合成不能在请求内做）
+     */
+    private function registerReplyWiring(): void
+    {
+        Event::listen(
+            SupportMessageReceived::class,
+            RespondToSupportMessage::class,
+        );
+    }
+
+    /**
+     * 转人工通知接线
+     *
+     * 框架的**默认**投递：notify 里数值型的条目当作已解析好的用户 ID 发站内通知。
+     * 场景语义标识（「班主任」等）由场景自行监听 SupportHandoffRequested 投递。
+     */
+    private function registerHandoffNotificationWiring(): void
+    {
+        Event::listen(
+            SupportHandoffRequested::class,
+            NotifyHandoffTargets::class,
         );
     }
 }

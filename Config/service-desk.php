@@ -26,8 +26,14 @@ return [
         'no_answer' => '抱歉，我暂时没有找到相关信息。您可以换个说法再问，或者我帮您转接人工。',
         // 转人工时给用户的提示
         'handoff_notice' => '已为您转接人工客服，请稍候。',
+        // 转人工**失败**时的提示（不能假装已转接，否则用户在那头干等）
+        'handoff_failed_notice' => '抱歉，人工客服暂时未能接入，您可以继续问我，或稍后再试。',
+        // 命中 block 级风险时的安全文案
+        'risk_block_notice' => '抱歉，这个我帮不了您，请联系工作人员。',
         // 人工接待中收到新消息时的静默提示（AI 不插话，但要让用户知道有人在看）
         'human_serving_notice' => '客服人员正在为您处理，请稍候。',
+        // 带入 AI 合成的历史轮数上限（0 = 不带历史，退化为单轮）
+        'history_turns' => (int) env('SERVICE_DESK_HISTORY_TURNS', 6),
     ],
 
     /*
@@ -71,6 +77,11 @@ return [
         'scene_ttl' => (int) env('SERVICE_DESK_SCENE_TTL', 900),
         // scene 值前缀，便于在企微侧识别来源
         'scene_prefix' => env('SERVICE_DESK_SCENE_PREFIX', 'sd'),
+        // 待绑定保留时长（秒）
+        //
+        // 比 scene_ttl 长：用户点了链接之后可能过一会儿才开口，而会话要等首条消息
+        // 才由 ConversationRouter 创建 —— 待绑定必须活到那一刻。
+        'pending_ttl' => (int) env('SERVICE_DESK_IDENTITY_PENDING_TTL', 86400),
     ],
 
     /*
