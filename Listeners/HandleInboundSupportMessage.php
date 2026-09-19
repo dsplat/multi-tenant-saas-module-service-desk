@@ -10,6 +10,7 @@ use MultiTenantSaas\Events\MessageReceived;
 use MultiTenantSaas\Modules\Conversation\Models\Conversation;
 use MultiTenantSaas\Modules\ServiceDesk\Events\SupportMessageReceived;
 use MultiTenantSaas\Modules\ServiceDesk\Services\IdentityBridgeService;
+use MultiTenantSaas\Modules\ServiceDesk\Services\SupportAgentResolver;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportSessionService;
 use MultiTenantSaas\Scopes\TenantScope;
 
@@ -19,9 +20,10 @@ use MultiTenantSaas\Scopes\TenantScope;
  * 挂框架的 `MessageReceived`（渠道无关的入站总事件），职责四件：
  *   1. **识别**：这条消息是否属于客服场景（渠道 + 会话类型）
  *   2. **初始化**：补齐租户上下文与接待态镜像（新会话默认由 AI 接待）
- *   3. **身份绑定**：若此前有「待绑定」（用户在进入会话事件里带来了 scene 短码），
+ *   3. **绑定客服 Agent**：把会话固定到一个「客服 Agent」上（人设与模型档位由它决定）
+ *   4. **身份绑定**：若此前有「待绑定」（用户在进入会话事件里带来了 scene 短码），
  *      此刻会话已存在，把身份落到会话上
- *   4. **派发**：发出 SupportMessageReceived，供后续能力挂载
+ *   5. **派发**：发出 SupportMessageReceived，供后续能力挂载
  *
  * 第 3 步为什么在这里而不是事件监听器里：会话由 ConversationRouter 在**首条消息**
  * 时才创建，而 enter_session 事件通常早于首条消息，那时无会话可绑 —— 两块必须分开。
@@ -39,6 +41,7 @@ class HandleInboundSupportMessage
     public function __construct(
         private readonly SupportSessionService $sessions,
         private readonly IdentityBridgeService $identity,
+        private readonly SupportAgentResolver $agents,
     ) {}
 
     public function handle(MessageReceived $event): void
@@ -67,6 +70,10 @@ class HandleInboundSupportMessage
             if ((bool) config('service-desk.state_sync.enabled', true)) {
                 $this->sessions->ensureSession($conversation);
             }
+
+            // 绑定客服 Agent（幂等）：它的 system_prompt / model_config 决定这条会话的
+            // AI 人设与模型档位。未配置客服 Agent 时返回 null，链路回落到内置提示词。
+            $this->agents->bindTo($conversation);
 
             $this->applyPendingIdentity($conversation, $tenantId);
 

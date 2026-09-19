@@ -7,10 +7,13 @@ namespace MultiTenantSaas\Modules\ServiceDesk\Services;
 use Illuminate\Support\Facades\Log;
 use MultiTenantSaas\Context\TenantContext;
 use MultiTenantSaas\Contracts\SupportChannelContract;
+use MultiTenantSaas\Modules\Ai\Models\Agent;
+use MultiTenantSaas\Modules\Ai\Services\Agent\AgentChatClient;
 use MultiTenantSaas\Modules\Conversation\Models\Conversation;
 use MultiTenantSaas\Modules\Conversation\Models\Message;
 use MultiTenantSaas\Modules\ServiceDesk\Dto\RiskVerdict;
 use MultiTenantSaas\Modules\ServiceDesk\Events\SupportHandoffRequested;
+use MultiTenantSaas\Modules\UserAi\Dto\UserAiContext;
 use MultiTenantSaas\Modules\UserAi\Services\UserAiRuntime;
 use MultiTenantSaas\Scopes\TenantScope;
 use MultiTenantSaas\Services\Channel\ChannelManager;
@@ -41,6 +44,8 @@ class SupportReplyService
         private readonly RiskGuard $risk,
         private readonly HandoffService $handoff,
         private readonly AccessLevelResolver $accessLevels,
+        private readonly SupportAgentResolver $agents,
+        private readonly AgentChatClient $chatClient,
         private readonly UserAiRuntime $runtime,
         private readonly ChannelManager $channels,
     ) {}
@@ -179,10 +184,7 @@ class SupportReplyService
                 tenantId: $tenantId,
                 visitorKey: $this->visitorKey($conversation, $inbound),
                 history: $this->history($conversation, $inbound),
-                // 等级由服务端判定（会话已关联用户 → authenticated；已核身 → verified），
-                // 经执行咽喉决定哪些工具可达 —— 与客户端输入完全无关
-                accessLevel: $this->accessLevels->levelFor($conversation),
-                actorId: $conversation->created_by !== null ? (string) $conversation->created_by : null,
+                context: $this->aiContext($conversation),
             );
         } catch (Throwable $e) {
             // AI 可选性铁律：AI 不可用时降级为转人工，而不是把错误抛给用户
@@ -204,6 +206,46 @@ class SupportReplyService
         }
 
         $this->reply($conversation, (string) ($result['answer'] ?? ''));
+    }
+
+    /**
+     * 组装对外问答上下文：身份等级 + 客服 Agent 的人设与模型档位
+     *
+     * 等级由服务端判定（会话已关联用户 → authenticated；已核身 → verified），
+     * 经执行咽喉决定哪些工具可达 —— 与客户端输入完全无关。
+     *
+     * 人设来自租户配置的客服 Agent（`effectiveSystemPrompt()`，含运行时日期注入）；
+     * 未配置客服 Agent 时传 null，框架用内置提示词（不配也能用）。
+     */
+    private function aiContext(Conversation $conversation): UserAiContext
+    {
+        $agent = $this->agents->resolveFor($conversation);
+
+        return new UserAiContext(
+            accessLevel: $this->accessLevels->levelFor($conversation),
+            actorId: $conversation->created_by !== null ? (string) $conversation->created_by : null,
+            persona: $agent?->effectiveSystemPrompt(),
+            // Agent 的配置词表（preferred_model/preferred_provider）与模型调用的选项名
+            // （model/provider）不同，映射放在这里 —— UserAi 层不该认识 Agent 的字段名
+            modelOptions: $agent !== null ? $this->modelOptionsFrom($agent) : [],
+        );
+    }
+
+    /**
+     * Agent 的模型档位 → 模型调用选项
+     *
+     * @return array<string, mixed>
+     */
+    private function modelOptionsFrom(Agent $agent): array
+    {
+        $config = $this->chatClient->resolveModelConfig($agent);
+
+        return array_filter([
+            'model' => $config['preferred_model'] ?? null,
+            'provider' => $config['preferred_provider'] ?? null,
+            'temperature' => $config['temperature'] ?? null,
+            'max_tokens' => $config['max_tokens'] ?? null,
+        ], static fn ($value) => $value !== null && $value !== '');
     }
 
     /**
