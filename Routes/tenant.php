@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
 use MultiTenantSaas\Modules\ServiceDesk\Http\Controllers\EntryLinkController;
+use MultiTenantSaas\Modules\ServiceDesk\Http\Controllers\IdentityController;
 
 /*
 |--------------------------------------------------------------------------
@@ -21,4 +22,9 @@ use MultiTenantSaas\Modules\ServiceDesk\Http\Controllers\EntryLinkController;
 Route::prefix('service-desk')->group(function () {
     // 签发入口带参客服链接：宿主（小程序）拿去做跳转，用户点进来即完成身份桥接
     Route::post('entry-link', [EntryLinkController::class, 'store']);
+
+    // 身份核验（authenticated → verified）：提升后可达个人信息类工具。
+    // 只能核验**当前登录用户自己的**会话 —— 归属以 conversations.created_by 为准，
+    // 不接受请求体指定，否则猜中会话 ID 就能提升别人的会话。
+    Route::post('identity/promote', [IdentityController::class, 'promote']);
 });

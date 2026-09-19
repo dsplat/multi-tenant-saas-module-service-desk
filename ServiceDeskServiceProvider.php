@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MultiTenantSaas\Modules\ServiceDesk;
 
 use Illuminate\Support\Facades\Event;
+use MultiTenantSaas\Contracts\ToolAccessRequirementContract;
 use MultiTenantSaas\Events\ChannelEventReceived;
 use MultiTenantSaas\Events\MessageReceived;
 use MultiTenantSaas\Modules\Contracts\ModuleServiceProvider;
@@ -14,9 +15,14 @@ use MultiTenantSaas\Modules\ServiceDesk\Listeners\HandleChannelEvent;
 use MultiTenantSaas\Modules\ServiceDesk\Listeners\HandleInboundSupportMessage;
 use MultiTenantSaas\Modules\ServiceDesk\Listeners\NotifyHandoffTargets;
 use MultiTenantSaas\Modules\ServiceDesk\Listeners\RespondToSupportMessage;
+use MultiTenantSaas\Modules\ServiceDesk\Services\AccessLevelResolver;
+use MultiTenantSaas\Modules\ServiceDesk\Services\ConversationContextFactory;
 use MultiTenantSaas\Modules\ServiceDesk\Services\HandoffService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\IdentityBridgeService;
+use MultiTenantSaas\Modules\ServiceDesk\Services\IdentityUpgradeService;
+use MultiTenantSaas\Modules\ServiceDesk\Services\PolicyToolAccessRequirement;
 use MultiTenantSaas\Modules\ServiceDesk\Services\RiskGuard;
+use MultiTenantSaas\Modules\ServiceDesk\Services\ScenarioExtensions;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SceneCodeService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportReplyService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportSessionService;
@@ -48,9 +54,17 @@ class ServiceDeskServiceProvider extends ModuleServiceProvider
         $this->app->singleton(SupportSessionService::class);
         $this->app->singleton(SceneCodeService::class);
         $this->app->singleton(IdentityBridgeService::class);
+        $this->app->singleton(ScenarioExtensions::class);
+        $this->app->singleton(ConversationContextFactory::class);
+        $this->app->singleton(AccessLevelResolver::class);
         $this->app->singleton(RiskGuard::class);
         $this->app->singleton(HandoffService::class);
+        $this->app->singleton(IdentityUpgradeService::class);
         $this->app->singleton(SupportReplyService::class);
+
+        // 把场景的数据分级策略接进执行咽喉：只抬高门槛、不放行白名单外的工具。
+        // 未配置策略时 requiredLevel() 返回 null，等价于「无额外要求」。
+        $this->app->singleton(ToolAccessRequirementContract::class, PolicyToolAccessRequirement::class);
     }
 
     protected function bootModule(): void

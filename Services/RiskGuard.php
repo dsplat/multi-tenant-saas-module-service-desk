@@ -5,10 +5,8 @@ declare(strict_types=1);
 namespace MultiTenantSaas\Modules\ServiceDesk\Services;
 
 use Illuminate\Support\Facades\Log;
-use MultiTenantSaas\Context\ActorContext;
 use MultiTenantSaas\Modules\Conversation\Models\Conversation;
 use MultiTenantSaas\Modules\ServiceDesk\Contracts\RiskInterceptorContract;
-use MultiTenantSaas\Modules\ServiceDesk\Dto\ConversationContext;
 use MultiTenantSaas\Modules\ServiceDesk\Dto\RiskVerdict;
 
 /**
@@ -25,7 +23,7 @@ use MultiTenantSaas\Modules\ServiceDesk\Dto\RiskVerdict;
 class RiskGuard
 {
     public function __construct(
-        private readonly SupportSessionService $sessions,
+        private readonly AccessLevelResolver $accessLevels,
     ) {}
 
     /**
@@ -41,7 +39,8 @@ class RiskGuard
             return null;
         }
 
-        $context = $this->context($conversation);
+        // 上下文与等级走统一入口：风险判定与分级判定必须看到同一份事实
+        $context = $this->accessLevels->contextFor($conversation);
 
         foreach ($interceptors as $class) {
             try {
@@ -100,51 +99,5 @@ class RiskGuard
         }
 
         return $valid;
-    }
-
-    /**
-     * 构建只读上下文
-     */
-    private function context(Conversation $conversation): ConversationContext
-    {
-        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
-        $externalConvId = (string) ($metadata['external_conv_id'] ?? '');
-        $channelIdentity = null;
-
-        if ($externalConvId !== '') {
-            $parts = explode(':', $externalConvId, 2);
-            $channelIdentity = $parts[1] ?? null;
-        }
-
-        return ConversationContext::fromConversation(
-            conversation: $conversation,
-            accessLevel: $this->accessLevel($conversation, $metadata),
-            channelIdentity: $channelIdentity,
-            serviceState: $this->sessions->getState($conversation),
-            unresolvedTurns: $this->sessions->getUnresolvedTurns($conversation),
-        );
-    }
-
-    /**
-     * 身份等级：以 metadata.access_level 为准（身份提升会写这里），
-     * 未提升过则按「渠道身份是否已关联到系统用户」推断
-     *
-     * @param  array<string, mixed>  $metadata
-     */
-    private function accessLevel(Conversation $conversation, array $metadata): string
-    {
-        $level = $metadata['access_level'] ?? null;
-
-        if (is_string($level) && in_array($level, [
-            ActorContext::LEVEL_ANONYMOUS,
-            ActorContext::LEVEL_AUTHENTICATED,
-            ActorContext::LEVEL_VERIFIED,
-        ], true)) {
-            return $level;
-        }
-
-        return $conversation->created_by !== null
-            ? ActorContext::LEVEL_AUTHENTICATED
-            : ActorContext::LEVEL_ANONYMOUS;
     }
 }

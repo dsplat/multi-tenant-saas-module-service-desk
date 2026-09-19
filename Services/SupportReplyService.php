@@ -40,6 +40,7 @@ class SupportReplyService
         private readonly SupportSessionService $sessions,
         private readonly RiskGuard $risk,
         private readonly HandoffService $handoff,
+        private readonly AccessLevelResolver $accessLevels,
         private readonly UserAiRuntime $runtime,
         private readonly ChannelManager $channels,
     ) {}
@@ -178,6 +179,10 @@ class SupportReplyService
                 tenantId: $tenantId,
                 visitorKey: $this->visitorKey($conversation, $inbound),
                 history: $this->history($conversation, $inbound),
+                // 等级由服务端判定（会话已关联用户 → authenticated；已核身 → verified），
+                // 经执行咽喉决定哪些工具可达 —— 与客户端输入完全无关
+                accessLevel: $this->accessLevels->levelFor($conversation),
+                actorId: $conversation->created_by !== null ? (string) $conversation->created_by : null,
             );
         } catch (Throwable $e) {
             // AI 可选性铁律：AI 不可用时降级为转人工，而不是把错误抛给用户
