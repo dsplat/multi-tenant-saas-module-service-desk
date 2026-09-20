@@ -25,6 +25,7 @@ use MultiTenantSaas\Modules\ServiceDesk\Services\RiskGuard;
 use MultiTenantSaas\Modules\ServiceDesk\Services\ScenarioExtensions;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SceneCodeService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportAgentResolver;
+use MultiTenantSaas\Modules\ServiceDesk\Services\SupportEscalationService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportReplyService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportSessionService;
 
@@ -59,6 +60,7 @@ class ServiceDeskServiceProvider extends ModuleServiceProvider
         $this->app->singleton(ConversationContextFactory::class);
         $this->app->singleton(AccessLevelResolver::class);
         $this->app->singleton(SupportAgentResolver::class);
+        $this->app->singleton(SupportEscalationService::class);
         $this->app->singleton(RiskGuard::class);
         $this->app->singleton(HandoffService::class);
         $this->app->singleton(IdentityUpgradeService::class);

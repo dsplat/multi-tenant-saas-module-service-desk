@@ -45,6 +45,7 @@ class SupportReplyService
         private readonly HandoffService $handoff,
         private readonly AccessLevelResolver $accessLevels,
         private readonly SupportAgentResolver $agents,
+        private readonly SupportEscalationService $escalations,
         private readonly AgentChatClient $chatClient,
         private readonly UserAiRuntime $runtime,
         private readonly ChannelManager $channels,
@@ -140,20 +141,11 @@ class SupportReplyService
             return;
         }
 
-        // escalate：先转人工，再告知用户；**无论渠道流转是否成功都要通知到人**
-        $synced = $this->handoff->toHuman($conversation, HandoffService::REASON_RISK);
-        $this->notifyHumans($conversation, HandoffService::REASON_RISK, $verdict);
-
-        $this->reply($conversation, $verdict->message
-            ?? (string) config('service-desk.reply.handoff_notice', '已为您转接人工客服，请稍候。'));
-
-        if (! $synced) {
-            // 渠道没转成功但人已收到通知 —— 这正是把「通知」与「渠道流转」解耦的意义所在
-            Log::error('[ServiceDesk] 风险转人工：渠道流转失败，已仅完成通知', [
-                'conversation_id' => $conversation->conversation_id,
-                'risk_reason' => $verdict->reason,
-            ]);
-        }
+        $this->escalate(
+            conversation: $conversation,
+            reason: HandoffService::REASON_RISK,
+            verdict: $verdict,
+        );
     }
 
     /**
@@ -161,14 +153,44 @@ class SupportReplyService
      */
     private function requestHandoff(Conversation $conversation, string $reason): void
     {
-        $ok = $this->handoff->toHuman($conversation, $reason);
+        $this->escalate($conversation, $reason);
+    }
 
-        $this->notifyHumans($conversation, $reason, null);
+    /**
+     * 转人工统一出口（所有触发条件都走这里）
+     *
+     * 顺序不可换：先转渠道接待态 → 再通知到人 → 再补齐坐席所需（摘要、工单）→ 最后答复用户。
+     *
+     * 「通知」与「渠道流转」刻意解耦且**都无条件执行**：渠道流转失败也要把人叫来
+     * （风险场景尤其如此），把通知绑在流转成功分支里会得到「渠道一挂、人也不知道」。
+     *
+     * 答复用户时按流转结果给不同文案：没转成功就说没转成功 —— 假装已转接会让用户干等。
+     */
+    private function escalate(
+        Conversation $conversation,
+        string $reason,
+        ?RiskVerdict $verdict = null,
+    ): void {
+        $synced = $this->handoff->toHuman($conversation, $reason);
 
-        $this->reply($conversation, $ok
+        $notify = $verdict?->notify ?? [];
+
+        $this->notifyHumans($conversation, $reason, $verdict, $notify);
+
+        // 坐席接手前把「讲了什么」与「后续跟进」备好（失败不影响转人工本身）
+        $this->escalations->escalate($conversation, $reason, $notify, $verdict);
+
+        if (! $synced) {
+            Log::error('[ServiceDesk] 转人工：渠道流转失败，已仅完成通知', [
+                'conversation_id' => $conversation->conversation_id,
+                'reason' => $reason,
+            ]);
+        }
+
+        $this->reply($conversation, $verdict?->message ?? ($synced
             ? (string) config('service-desk.reply.handoff_notice', '已为您转接人工客服，请稍候。')
-            // 转人工失败要如实告知，不能假装已转接 —— 否则用户就在那头干等
-            : (string) config('service-desk.reply.handoff_failed_notice', '抱歉，人工客服暂时未能接入，您可以继续问我，或稍后再试。'));
+            // 转人工失败要如实告知 —— 否则用户就在那头干等
+            : (string) config('service-desk.reply.handoff_failed_notice', '抱歉，人工客服暂时未能接入，您可以继续问我，或稍后再试。')));
     }
 
     /**
@@ -341,12 +363,16 @@ class SupportReplyService
     /**
      * 广播「请人工介入」（含通知对象）
      */
-    private function notifyHumans(Conversation $conversation, string $reason, ?RiskVerdict $verdict): void
-    {
+    private function notifyHumans(
+        Conversation $conversation,
+        string $reason,
+        ?RiskVerdict $verdict,
+        array $notify,
+    ): void {
         SupportHandoffRequested::dispatch(
             conversation: $conversation,
             reason: $reason,
-            notify: $verdict?->notify ?? [],
+            notify: $notify,
             verdict: $verdict,
         );
     }

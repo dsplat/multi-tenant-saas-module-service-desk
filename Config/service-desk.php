@@ -46,6 +46,10 @@ return [
         'max_unresolved_turns' => (int) env('SERVICE_DESK_MAX_UNRESOLVED_TURNS', 3),
         // 是否允许用户主动要求转人工（关键词 + 意图）
         'allow_visitor_request' => true,
+        // 转人工时刷新会话摘要（坐席接手时最需要「这段会话讲了什么」）
+        'summary_on_handoff' => (bool) env('SERVICE_DESK_SUMMARY_ON_HANDOFF', true),
+        // 转人工时建工单（人工队列不该是漏斗底部：要有可跟进、可统计的落点）
+        'ticket_enabled' => (bool) env('SERVICE_DESK_TICKET_ENABLED', true),
     ],
 
     /*
