@@ -114,7 +114,21 @@ class HandoffService
         }
 
         // 以渠道为唯一事实源：回读后写镜像，而不是假定刚设的状态生效了
-        $this->syncState($conversation, $driver, $openKfId, $externalUserId);
+        $read = $this->syncState($conversation, $driver, $openKfId, $externalUserId);
+
+        if ($read === null) {
+            // 渠道**接受了**流转，但回读失败：不能让镜像停在 AI 态 —— 那会让用户
+            // 被告知「已转接」之后，下一条消息又被 AI 继续作答（人工接待保护失效）。
+            // 按我们请求的目标态落一个**暂定镜像**，并记日志；
+            // 后续任一次成功回读会把它校正为渠道真实态。
+            Log::warning('[ServiceDesk] 转人工后回读渠道态失败，按目标态暂写镜像', [
+                'conversation_id' => $conversation->conversation_id,
+                'target_state' => $targetState,
+                'reason' => $reason,
+            ]);
+
+            $this->sessions->markState($conversation, $targetState, $servicerUserId);
+        }
 
         $this->recordHandoff($conversation, $reason, $servicerUserId, $result['msg_code'] ?? null);
 
@@ -170,22 +184,28 @@ class HandoffService
     ): void {
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
 
-        $conversation->metadata = $metadata + [
-            'handoff_reason' => $reason,
-            'handoff_at' => now()->toIso8601String(),
-            // 度量口径（§5.1）：排队时刻用于算「首次响应时长」
+        // ⚠ 两条容易踩的坑，都在这个方法里踩过：
+        // 1. Eloquent 的 JSON cast 属性**不能**用 `$model->metadata['k'] = v` 赋值 ——
+        //    getter 返回的是副本，改副本不落库（静默丢失）。必须组好整个数组再赋值一次。
+        // 2. 可更新字段不能用 `+` 合并 —— `+` 保留左操作数的旧值，第二次转人工的
+        //    原因会被第一次挡住，看板上的原因分布因此失真。只有「首次语义」的键
+        //    （queued_at：第一次排队时刻）保留 `+`。
+        $metadata = $metadata + [
             'queued_at' => $metadata['queued_at'] ?? now()->toIso8601String(),
         ];
+        $metadata['handoff_reason'] = $reason;
+        $metadata['handoff_at'] = now()->toIso8601String();
 
         if ($servicerUserId !== null && $servicerUserId !== '') {
-            $conversation->metadata = $conversation->metadata + ['handoff_servicer' => $servicerUserId];
+            $metadata['handoff_servicer'] = $servicerUserId;
         }
 
         if ($msgCode !== null && $msgCode !== '') {
             // 渠道在变更为 2 / 3 时返回接待语 code，需要用 send_msg_on_event 下发
-            $conversation->metadata = $conversation->metadata + ['handoff_msg_code' => $msgCode];
+            $metadata['handoff_msg_code'] = $msgCode;
         }
 
+        $conversation->metadata = $metadata;
         $conversation->save();
     }
 

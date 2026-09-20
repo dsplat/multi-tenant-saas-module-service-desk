@@ -82,9 +82,16 @@ class SupportReplyService
      */
     private function decide(Conversation $conversation, Message $inbound): void
     {
-        // ── 0. 满意度反馈：先记录，且**不再当成问题去答** ──────────
-        // 放在最前面是因为它可能出现在人工接待之后（评价的对象正是那次人工服务），
-        // 若放在「人工接待中不插话」之后就会被跳过、永远采不到。
+        // ── 0. 接待态回读（镜像可能已陈旧） ─────────────────────────
+        // 判定依据设计上是「渠道接待态」，本地只是镜像。两类陈旧都会出事：
+        //   人工接待结束后渠道回到待接入态，本地若停在 4（已结束）→ AI 永久沉默；
+        //   人工刚接手时本地若还是 1 → AI 插话（违背铁律）。
+        // 故在「可能陈旧」的情形下回读一次；读不到时 fail-closed（见 refreshStateIfStale）。
+        $this->refreshStateIfStale($conversation);
+
+        // ── 1. 满意度反馈：先记录，且**不再当成问题去答** ──────────
+        // 放在「人工不插话」之前，是因为评价的对象往往正是那次人工服务，
+        // 放在后面就永远采不到。匹配限定在「已邀评」窗口内，避免把真实提问吞掉。
         $text = trim((string) $inbound->content);
 
         if ($text !== '' && $this->satisfaction->recordIfFeedback($conversation, $text)) {
@@ -93,14 +100,16 @@ class SupportReplyService
             return;
         }
 
-        // ── 1. 人工接待中：AI 不插话 ─────────────────────────────
+        // ── 2. 人工接待中：AI 不插话 ─────────────────────────────
         if (! $this->sessions->isAiServing($conversation)) {
-            // 不回复是有意的：人工正在接待，AI 插一句会打断对话。
-            // 但也**不发**「请稍候」之类的话 —— 人工本来就在，多一句是噪音。
             Log::info('[ServiceDesk] 人工接待中，AI 不插话', [
                 'conversation_id' => $conversation->conversation_id,
                 'service_state' => $this->sessions->getState($conversation),
             ]);
+
+            // 只发一次「有人在看」的提示：人工本来就在，重复提醒是噪音；
+            // 但完全不发会让用户以为没人理。
+            $this->noticeHumanServing($conversation);
 
             return;
         }
@@ -111,7 +120,7 @@ class SupportReplyService
             return;
         }
 
-        // ── 2. 风险拦截：强制转人工（优先于用户的请求） ───────────
+        // ── 3. 风险拦截：强制转人工（优先于用户的请求） ───────────
         $verdict = $this->risk->inspect($conversation, $question);
 
         if ($verdict !== null) {
@@ -120,14 +129,14 @@ class SupportReplyService
             return;
         }
 
-        // ── 3. 用户主动要求转人工 ────────────────────────────────
+        // ── 4. 用户主动要求转人工 ────────────────────────────────
         if ($this->wantsHuman($conversation, $question)) {
             $this->requestHandoff($conversation, HandoffService::REASON_VISITOR_REQUEST);
 
             return;
         }
 
-        // ── 4. 连续未命中达阈值 ─────────────────────────────────
+        // ── 5. 连续未命中达阈值 ─────────────────────────────────
         $maxUnresolved = max(1, (int) $this->settings->getForConversation(
             $conversation,
             'handoff.max_unresolved_turns',
@@ -140,8 +149,71 @@ class SupportReplyService
             return;
         }
 
-        // ── 5. AI 应答 ─────────────────────────────────────────
+        // ── 6. AI 应答 ─────────────────────────────────────────
         $this->answer($conversation, $question, $inbound);
+    }
+
+    /**
+     * 接待态回读（镜像陈旧时）
+     *
+     * 只在「可能陈旧」时回读，避免每条消息都打一次渠道：
+     *   - 本地无镜像（state_sync 关闭 / 事件链路失败）
+     *   - 本地是已结束（4）：渠道可能已回到待接入，不回读则 AI 永久沉默
+     *   - 会话有过转人工记录：人工可能正在接待，不回读则 AI 会插话
+     *
+     * 回读不到且曾转人工 → **fail-closed**：把镜像暂写为「人工接待」，
+     * 让 AI 保持沉默。宁可少答一次，不可在人工接待时插话（铁律）。
+     * 代价是渠道临时不可用时这些会话会沉默；日志记录以便排查。
+     */
+    private function refreshStateIfStale(Conversation $conversation): void
+    {
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $state = $this->sessions->getState($conversation);
+        $hadHandoff = isset($metadata['handoff_reason']);
+
+        if ($state !== null && $state !== 4 && ! $hadHandoff) {
+            return;
+        }
+
+        $read = $this->handoff->syncState($conversation);
+
+        if ($read !== null) {
+            return;
+        }
+
+        if ($hadHandoff) {
+            Log::warning('[ServiceDesk] 曾转人工但渠道接待态读取失败，按人工接待处理（AI 不插话）', [
+                'conversation_id' => $conversation->conversation_id,
+                'state' => $state,
+            ]);
+
+            // 3 = 人工接待（与 WechatWorkApiClient::KF_STATE_HUMAN 对齐）
+            $this->sessions->markState($conversation, 3);
+        }
+    }
+
+    /**
+     * 人工接待中给用户一次「有人在看」的提示（一会话只发一次）
+     */
+    private function noticeHumanServing(Conversation $conversation): void
+    {
+        $notice = trim((string) config('service-desk.reply.human_serving_notice', ''));
+
+        if ($notice === '') {
+            return;
+        }
+
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+
+        if (isset($metadata['human_serving_notice_at'])) {
+            return;
+        }
+
+        // 先写标记再发：宁可漏发一次提示，也不要每条消息都刷屏
+        $conversation->metadata = $metadata + ['human_serving_notice_at' => now()->toIso8601String()];
+        $conversation->save();
+
+        $this->reply($conversation, $notice);
     }
 
     /**
@@ -205,10 +277,19 @@ class SupportReplyService
             ]);
         }
 
-        $this->reply($conversation, $verdict?->message ?? ($synced
-            ? (string) config('service-desk.reply.handoff_notice', '已为您转接人工客服，请稍候。')
-            // 转人工失败要如实告知 —— 否则用户就在那头干等
-            : (string) config('service-desk.reply.handoff_failed_notice', '抱歉，人工客服暂时未能接入，您可以继续问我，或稍后再试。')));
+        // 文案分支：渠道**没**转成功时，拦截器自带的话术也必须让位 ——
+        // 否则用户收到「已为您转接」，实际却没人在（自己举手反而更糟）。
+        if (! $synced) {
+            $this->reply($conversation, (string) config(
+                'service-desk.reply.handoff_failed_notice',
+                '抱歉，人工客服暂时未能接入，您可以继续问我，或稍后再试。',
+            ));
+
+            return;
+        }
+
+        $this->reply($conversation, $verdict?->message
+            ?? (string) config('service-desk.reply.handoff_notice', '已为您转接人工客服，请稍候。'));
     }
 
     /**
@@ -395,13 +476,16 @@ class SupportReplyService
      */
     private function markRisk(Conversation $conversation, RiskVerdict $verdict, Message $inbound): void
     {
-        $conversation->metadata = (is_array($conversation->metadata) ? $conversation->metadata : []) + [
-            'risk_flag' => [
-                'level' => $verdict->level,
-                'reason' => $verdict->reason,
-                'flagged_at' => now()->toIso8601String(),
-            ],
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+
+        // 覆盖写：同一会话可能多次命中风险，看板要的是**最新**一次，不是第一次
+        $metadata['risk_flag'] = [
+            'level' => $verdict->level,
+            'reason' => $verdict->reason,
+            'flagged_at' => now()->toIso8601String(),
         ];
+
+        $conversation->metadata = $metadata;
         $conversation->save();
 
         $messageMetadata = is_array($inbound->metadata) ? $inbound->metadata : [];
@@ -485,6 +569,13 @@ class SupportReplyService
             $content = trim((string) $row->content);
 
             if ($content === '') {
+                continue;
+            }
+
+            // system（接待态通知、系统播报等）不是对话内容：塞进多轮历史
+            // 会被模型当成「用户说过的话」。UserAiRuntime 也会滤掉越界角色，
+            // 但在这里就过滤掉，避免把噪声带给下游。
+            if ($row->sender_type === 'system') {
                 continue;
             }
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MultiTenantSaas\Modules\ServiceDesk\Services;
 
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use MultiTenantSaas\Modules\Conversation\Models\Conversation;
 use MultiTenantSaas\Modules\Infrastructure\Services\TenantSettingService;
@@ -48,17 +49,22 @@ class ServiceDeskSettings
         'satisfaction.enabled' => ['bool', 'service-desk.satisfaction.enabled'],
         'satisfaction.prompt_on_close' => ['bool', 'service-desk.satisfaction.prompt_on_close'],
         'satisfaction.options' => ['array', 'service-desk.satisfaction.options'],
+        'satisfaction.prompt_text' => ['string', 'service-desk.satisfaction.prompt_text'],
     ];
 
     /**
-     * 按租户缓存的原始设置值（进程内）
+     * 进程内设置缓存：按租户分键（天然不串租户），且**带 TTL**
      *
-     * 键是 tenantId，因此天然不会跨租户串值；写入后按租户失效。
-     * 相比「每条消息查一次库」，这里每租户只读一次设置组。
+     * 带 TTL 是必须的：客服应答跑在**长驻 queue worker** 里，进程不结束、
+     * 又没有 HTTP 请求边界。若缓存到进程结束，控制台改了阈值/开关之后
+     * worker 仍会一直用旧值 —— 那正是「运营改了配置却没生效」的那类缺陷。
      *
-     * @var array<int, array<string, mixed>>
+     * @var array<int, array{at: float, values: array<string, mixed>}>
      */
     private array $resolved = [];
+
+    /** 缓存有效期（秒）：短到能感知配置变更，长到能扛住同一批消息的重复读 */
+    private const CACHE_TTL = 60;
 
     public function __construct(
         private readonly TenantSettingService $settings,
@@ -139,12 +145,17 @@ class ServiceDeskSettings
      */
     private function stored(int $tenantId): array
     {
-        if (array_key_exists($tenantId, $this->resolved)) {
-            return $this->resolved[$tenantId];
+        // 用 Carbon 而不是 microtime：测试里才能用时间旅行验证 TTL 过期
+        $now = Carbon::now()->getTimestamp();
+
+        if (isset($this->resolved[$tenantId])
+            && ($now - $this->resolved[$tenantId]['at']) < self::CACHE_TTL
+        ) {
+            return $this->resolved[$tenantId]['values'];
         }
 
         try {
-            return $this->resolved[$tenantId] = $this->settings->getGroup($tenantId, self::GROUP);
+            $values = $this->settings->getGroup($tenantId, self::GROUP);
         } catch (Throwable $e) {
             // 设置存储不可用不能拖垮客服链路：回落 config（fail-open 到部署默认值）
             Log::warning('[ServiceDesk] 读取租户设置失败，回落模块配置', [
@@ -152,8 +163,12 @@ class ServiceDeskSettings
                 'error' => $e->getMessage(),
             ]);
 
-            return $this->resolved[$tenantId] = [];
+            $values = [];
         }
+
+        $this->resolved[$tenantId] = ['at' => $now, 'values' => $values];
+
+        return $values;
     }
 
     /**
@@ -167,6 +182,8 @@ class ServiceDeskSettings
         return match (self::EDITABLE[$key][0]) {
             'bool' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
             'int' => (int) $value,
+            // array 原样透传（满意度词表等）；写入时不做形状校验，
+            // 读取方负责兜底
             default => $value,
         };
     }

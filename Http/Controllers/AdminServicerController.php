@@ -27,8 +27,6 @@ use Throwable;
  */
 class AdminServicerController extends Controller
 {
-    private const CHANNEL = 'wechat-kf';
-
     public function __construct(
         private readonly ChannelManager $channels,
     ) {}
@@ -37,9 +35,10 @@ class AdminServicerController extends Controller
     {
         $validated = $request->validate([
             'open_kfid' => 'required|string|max:64',
+            'channel' => 'nullable|string|max:32',
         ]);
 
-        $driver = $this->supportDriver();
+        $driver = $this->supportDriver((string) ($validated['channel'] ?? ''));
 
         if ($driver === null) {
             return $this->channelUnavailable();
@@ -68,6 +67,7 @@ class AdminServicerController extends Controller
     {
         $validated = $request->validate([
             'open_kfid' => 'required|string|max:64',
+            'channel' => 'nullable|string|max:32',
             'userid_list' => 'nullable|array|max:100',
             'userid_list.*' => 'string|max:64',
             'department_id_list' => 'nullable|array|max:20',
@@ -85,7 +85,7 @@ class AdminServicerController extends Controller
             ], 422);
         }
 
-        $driver = $this->supportDriver();
+        $driver = $this->supportDriver((string) ($validated['channel'] ?? ''));
 
         if ($driver === null) {
             return $this->channelUnavailable();
@@ -144,17 +144,27 @@ class AdminServicerController extends Controller
 
     /**
      * 取渠道的客服能力面（不支持则 null）
+     *
+     * 渠道标识取自配置（`service-desk.channels`），调用方也可显式指定：
+     * 之前硬编码 'wechat-kf'，配置里的别名 'wechat_kf' 就永远对不上。
      */
-    private function supportDriver(): ?SupportChannelContract
+    private function supportDriver(string $requested = ''): ?SupportChannelContract
     {
         $tenantId = (int) TenantContext::getId();
 
-        if ($tenantId <= 0 || ! $this->channels->hasDriver(self::CHANNEL)) {
+        if ($tenantId <= 0) {
+            return null;
+        }
+
+        $configured = (array) config('service-desk.channels', []);
+        $channel = $requested !== '' ? $requested : (string) ($configured[0] ?? '');
+
+        if ($channel === '' || ! $this->channels->hasDriver($channel)) {
             return null;
         }
 
         try {
-            $driver = $this->channels->resolve(self::CHANNEL, $tenantId);
+            $driver = $this->channels->resolve($channel, $tenantId);
         } catch (Throwable) {
             return null;
         }

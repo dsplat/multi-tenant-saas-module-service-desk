@@ -97,20 +97,28 @@ class SatisfactionService
             return false;
         }
 
+        // **只在邀评窗口内匹配**：包含式匹配（"我很满意，谢谢"）在没有邀评时会把
+        // 真实提问吞掉 —— 用户说「不满意，能再解释一下吗」会被记成评价并致谢，
+        // 问题永远得不到处理。没有邀评就没有评价，宁可漏采也不要吞提问。
+        if (! isset($metadata[self::META_PENDING])) {
+            return false;
+        }
+
         $value = $this->match($conversation, $text);
 
         if ($value === null) {
             return false;
         }
 
-        $conversation->metadata = $metadata + [
-            self::META_SATISFACTION => [
-                'value' => $value,
-                // 记录来源：是「回复了邀评」还是「自己主动说的」，事后统计口径不同
-                'asked' => isset($metadata[self::META_PENDING]),
-                'at' => now()->toIso8601String(),
-            ],
+        // 覆盖写：外层已做过「已有评价则不覆盖」的幂等判断，到这里就是该写的时候
+        $metadata[self::META_SATISFACTION] = [
+            'value' => $value,
+            // 记录来源：是「回复了邀评」还是「自己主动说的」，事后统计口径不同
+            'asked' => isset($metadata[self::META_PENDING]),
+            'at' => now()->toIso8601String(),
         ];
+
+        $conversation->metadata = $metadata;
         $conversation->save();
 
         return true;

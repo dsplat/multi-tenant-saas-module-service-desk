@@ -143,10 +143,11 @@ class SupportEscalationService
 
         // Ticket 没有 conversation_id 列：按「零新列」约定把关联写在会话 metadata
         // （方向与会话上的 handoff_* 一致，避免为此加一列并回填）
-        $conversation->metadata = $metadata + [
-            'ticket_id' => $ticket->ticket_id,
-            'ticket_opened_at' => now()->toIso8601String(),
-        ];
+        // 覆盖写（外层已有「已建过就不重复建」的幂等判断，到这里就是该写的时候）
+        $metadata['ticket_id'] = $ticket->ticket_id;
+        $metadata['ticket_opened_at'] = now()->toIso8601String();
+
+        $conversation->metadata = $metadata;
         $conversation->save();
 
         return $ticket;

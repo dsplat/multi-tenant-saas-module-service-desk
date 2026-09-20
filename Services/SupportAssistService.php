@@ -82,7 +82,9 @@ class SupportAssistService
 
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
 
-        $conversation->metadata = $metadata + ['suggested_replies' => $suggestions];
+        // 覆盖写：多次转人工时应以**最新**建议为准（`+` 会挡住更新）
+        $metadata['suggested_replies'] = $suggestions;
+        $conversation->metadata = $metadata;
         $conversation->save();
 
         return $suggestions;
