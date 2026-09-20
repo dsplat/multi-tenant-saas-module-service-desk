@@ -22,6 +22,7 @@ use MultiTenantSaas\Modules\ServiceDesk\Services\IdentityBridgeService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\IdentityUpgradeService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\PolicyToolAccessRequirement;
 use MultiTenantSaas\Modules\ServiceDesk\Services\RiskGuard;
+use MultiTenantSaas\Modules\ServiceDesk\Services\SatisfactionService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\ScenarioExtensions;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SceneCodeService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\ServiceDeskSettings;
@@ -57,6 +58,7 @@ class ServiceDeskServiceProvider extends ModuleServiceProvider
     {
         $this->app->singleton(SupportSessionService::class);
         $this->app->singleton(SceneCodeService::class);
+        $this->app->singleton(SatisfactionService::class);
         $this->app->singleton(IdentityBridgeService::class);
         $this->app->singleton(ScenarioExtensions::class);
         $this->app->singleton(ConversationContextFactory::class);

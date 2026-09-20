@@ -25,6 +25,8 @@ use MultiTenantSaas\Scopes\TenantScope;
  *   渠道回调 origin=5 目前被 fetcher 过滤、不入库，因此人工响应时间本地看不到。
  * - 未解决轮数只统计**发生过的**（元数据计数器），是会话内的连续未命中数，
  *   不是「总共有多少问题没解决」。
+ * - 满意度给出「评价率」而不只是满意率：采集依赖用户主动回复，评价率天然偏低，
+ *   只报满意率会让人误以为剩下的人都满意。
  */
 class SupportStatsService
 {
@@ -97,6 +99,7 @@ class SupportStatsService
             'tickets' => $ticketCount,
             'first_response' => $this->firstResponse($base),
             'unresolved_turns' => $this->unresolvedTurns($base),
+            'satisfaction' => $this->satisfaction($base, $total),
         ];
     }
 
@@ -204,6 +207,41 @@ class SupportStatsService
         return [
             'average' => round(array_sum($values) / count($values), 2),
             'max' => max($values),
+        ];
+    }
+
+    /**
+     * 满意度分布
+     *
+     * 「已评价」与「未评价」必须分开看：采集依赖用户主动回复，评价率天然偏低，
+     * 只报「满意率」会让人误以为剩下的人都满意。故一并给出 collected（评价率）。
+     *
+     * @return array{collected: int, rate: float, by_value: array<string, int>}
+     */
+    private function satisfaction(Builder $base, int $total): array
+    {
+        $rows = (clone $base)->get(['metadata']);
+
+        $byValue = [];
+
+        foreach ($rows as $row) {
+            $satisfaction = (($row->metadata ?? [])['satisfaction'] ?? null);
+            $value = is_array($satisfaction) ? (string) ($satisfaction['value'] ?? '') : '';
+
+            if ($value !== '') {
+                $byValue[$value] = ($byValue[$value] ?? 0) + 1;
+            }
+        }
+
+        // 稳定排序：计数降序，同数按选项名升序 —— 看板上同一份数据的顺序不该每次都变
+        uksort($byValue, static function (string $a, string $b) use ($byValue) {
+            return $byValue[$b] <=> $byValue[$a] ?: strcmp($a, $b);
+        });
+
+        return [
+            'collected' => array_sum($byValue),
+            'rate' => $this->rate(array_sum($byValue), $total),
+            'by_value' => $byValue,
         ];
     }
 

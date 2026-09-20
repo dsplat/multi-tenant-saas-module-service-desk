@@ -47,6 +47,7 @@ class SupportReplyService
         private readonly SupportAgentResolver $agents,
         private readonly SupportEscalationService $escalations,
         private readonly ServiceDeskSettings $settings,
+        private readonly SatisfactionService $satisfaction,
         private readonly AgentChatClient $chatClient,
         private readonly UserAiRuntime $runtime,
         private readonly ChannelManager $channels,
@@ -81,6 +82,17 @@ class SupportReplyService
      */
     private function decide(Conversation $conversation, Message $inbound): void
     {
+        // ── 0. 满意度反馈：先记录，且**不再当成问题去答** ──────────
+        // 放在最前面是因为它可能出现在人工接待之后（评价的对象正是那次人工服务），
+        // 若放在「人工接待中不插话」之后就会被跳过、永远采不到。
+        $text = trim((string) $inbound->content);
+
+        if ($text !== '' && $this->satisfaction->recordIfFeedback($conversation, $text)) {
+            $this->reply($conversation, $this->satisfaction->thanksText());
+
+            return;
+        }
+
         // ── 1. 人工接待中：AI 不插话 ─────────────────────────────
         if (! $this->sessions->isAiServing($conversation)) {
             // 不回复是有意的：人工正在接待，AI 插一句会打断对话。

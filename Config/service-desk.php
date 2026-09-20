@@ -99,6 +99,23 @@ return [
     ],
 
     /*
+    | 满意度采集
+    |
+    | 用**结束语**下发文本邀评（send_msg_on_event，官方明确文本可用），用户回复命中
+    | 词表即记录。没用 msgmenu：点选回调给我们什么，官方文档未写明，不猜。
+    |
+    | prompt_on_close 默认 **false**：邀评依赖「会话结束后用户还能回复」这一行为，
+    | 该项尚未真机验证。未开启时整套采集不会触发 —— 宁可没有数据，
+    | 也不要产出一批「看起来在采集、实际永远为空」的假指标。
+    */
+    'satisfaction' => [
+        'enabled' => (bool) env('SERVICE_DESK_SATISFACTION_ENABLED', false),
+        'prompt_on_close' => (bool) env('SERVICE_DESK_SATISFACTION_PROMPT_ON_CLOSE', false),
+        'options' => ['满意', '一般', '不满意'],
+        'thanks_text' => '感谢您的反馈，祝您一切顺利。',
+    ],
+
+    /*
     | 场景扩展点（框架定义接口，场景提供实现）
     |
     | 注册方式对齐框架既有的 extra_*_classes 范式（config/ai.php 的

@@ -6,12 +6,15 @@ namespace MultiTenantSaas\Modules\ServiceDesk\Listeners;
 
 use Illuminate\Support\Facades\Log;
 use MultiTenantSaas\Context\TenantContext;
+use MultiTenantSaas\Contracts\SupportChannelContract;
 use MultiTenantSaas\Events\ChannelEventReceived;
 use MultiTenantSaas\Modules\Conversation\Models\Conversation;
 use MultiTenantSaas\Modules\ServiceDesk\Services\IdentityBridgeService;
+use MultiTenantSaas\Modules\ServiceDesk\Services\SatisfactionService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SceneCodeService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportSessionService;
 use MultiTenantSaas\Scopes\TenantScope;
+use MultiTenantSaas\Services\Channel\ChannelManager;
 
 /**
  * 客服渠道事件接线
@@ -53,6 +56,8 @@ class HandleChannelEvent
         private readonly SceneCodeService $sceneCodes,
         private readonly IdentityBridgeService $identity,
         private readonly SupportSessionService $sessions,
+        private readonly SatisfactionService $satisfaction,
+        private readonly ChannelManager $channels,
     ) {}
 
     public function handle(ChannelEventReceived $event): void
@@ -144,6 +149,9 @@ class HandleChannelEvent
         if ($changeType === 3) {
             $this->sessions->markState($conversation, self::STATE_CLOSED);
 
+            // 会话结束是邀评的自然时机；结束语 code 有效仅 20 秒，拿到就得发
+            $this->inviteSatisfaction($conversation, (string) ($inner['msg_code'] ?? ''));
+
             return;
         }
 
@@ -156,6 +164,51 @@ class HandleChannelEvent
                 $servicer !== '' ? $servicer : null,
             );
         }
+    }
+
+    /**
+     * 会话结束时邀评（默认关闭，见 config 里 satisfaction 段的说明）
+     *
+     * 依赖「会话结束后用户仍能回复」这一行为，尚未真机验证，故默认不开。
+     */
+    private function inviteSatisfaction(Conversation $conversation, string $msgCode): void
+    {
+        if ($msgCode === '' || ! $this->satisfaction->enabled($conversation)) {
+            return;
+        }
+
+        if (! (bool) $this->satisfaction->promptOnClose($conversation)) {
+            return;
+        }
+
+        $driver = $this->supportDriver($conversation);
+
+        if ($driver === null) {
+            return;
+        }
+
+        $this->satisfaction->markAsked($conversation);
+        $driver->sendEventReply($msgCode, $this->satisfaction->promptText($conversation));
+    }
+
+    /**
+     * 取该会话所属渠道的客服能力面
+     */
+    private function supportDriver(Conversation $conversation): ?SupportChannelContract
+    {
+        $channel = (string) ($conversation->channel ?? '');
+
+        if ($channel === '' || ! $this->channels->hasDriver($channel)) {
+            return null;
+        }
+
+        try {
+            $driver = $this->channels->resolve($channel, (int) $conversation->tenant_id);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $driver instanceof SupportChannelContract ? $driver : null;
     }
 
     /**

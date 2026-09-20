@@ -45,6 +45,9 @@ class ServiceDeskSettings
         'handoff.suggest_replies' => ['bool', 'service-desk.handoff.suggest_replies'],
         'state_sync.enabled' => ['bool', 'service-desk.state_sync.enabled'],
         'reply.history_turns' => ['int', 'service-desk.reply.history_turns'],
+        'satisfaction.enabled' => ['bool', 'service-desk.satisfaction.enabled'],
+        'satisfaction.prompt_on_close' => ['bool', 'service-desk.satisfaction.prompt_on_close'],
+        'satisfaction.options' => ['array', 'service-desk.satisfaction.options'],
     ];
 
     /**
