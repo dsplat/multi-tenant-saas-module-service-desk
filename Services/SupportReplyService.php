@@ -255,6 +255,7 @@ class SupportReplyService
             // Agent 的配置词表（preferred_model/preferred_provider）与模型调用的选项名
             // （model/provider）不同，映射放在这里 —— UserAi 层不该认识 Agent 的字段名
             modelOptions: $agent !== null ? $this->modelOptionsFrom($agent) : [],
+            toolScope: $agent !== null ? $this->toolScopeFrom($agent) : null,
         );
     }
 
@@ -273,6 +274,26 @@ class SupportReplyService
             'temperature' => $config['temperature'] ?? null,
             'max_tokens' => $config['max_tokens'] ?? null,
         ], static fn ($value) => $value !== null && $value !== '');
+    }
+
+    /**
+     * 客服 Agent 的工具范围 = Agent 声明的工具 ∩ 暴露面白名单
+     *
+     * 与暴露面的关系是**交集，不是替代**：白名单是硬边界（外部主体永远够不到未登记的工具），
+     * Agent 只能在边界之内再缩范围。这样「按 Agent 收窄工具面」这个动作就不会
+     * 变成一条新的越权通道。
+     *
+     * 空列表的语义：Agent 一个工具都没声明 → 收窄为空（对该 Agent 而言无工具可用）。
+     * 但**未配置客服 Agent 时返回 null**（不做额外限制），保持改造前的行为。
+     *
+     * @return array<int, string>|null
+     */
+    private function toolScopeFrom(Agent $agent): ?array
+    {
+        $allowed = array_keys((array) config('user-ai.tool_surface.allowed', []));
+        $declared = $agent->effectiveTools();
+
+        return array_values(array_intersect($allowed, $declared));
     }
 
     /**
