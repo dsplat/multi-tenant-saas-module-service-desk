@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
 use MultiTenantSaas\Modules\ServiceDesk\Http\Controllers\AdminConfigController;
+use MultiTenantSaas\Modules\ServiceDesk\Http\Controllers\AdminServicerController;
 use MultiTenantSaas\Modules\ServiceDesk\Http\Controllers\AdminStatsController;
 
 /*
@@ -30,4 +31,10 @@ Route::prefix('service-desk')->group(function () {
     // 度量看板
     Route::get('stats', [AdminStatsController::class, 'index'])
         ->middleware('rbac.permission:service_desk.view');
+
+    // 接待人员（渠道持有，框架只做读写代理，不落库）
+    Route::get('servicers', [AdminServicerController::class, 'index'])
+        ->middleware('rbac.permission:service_desk.view');
+    Route::post('servicers', [AdminServicerController::class, 'store'])
+        ->middleware('rbac.permission:service_desk.servicer');
 });
