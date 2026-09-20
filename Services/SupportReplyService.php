@@ -11,6 +11,7 @@ use MultiTenantSaas\Modules\Ai\Models\Agent;
 use MultiTenantSaas\Modules\Ai\Services\Agent\AgentChatClient;
 use MultiTenantSaas\Modules\Conversation\Models\Conversation;
 use MultiTenantSaas\Modules\Conversation\Models\Message;
+use MultiTenantSaas\Modules\Conversation\Services\ConversationRuleTaggingService;
 use MultiTenantSaas\Modules\ServiceDesk\Dto\RiskVerdict;
 use MultiTenantSaas\Modules\ServiceDesk\Events\SupportHandoffRequested;
 use MultiTenantSaas\Modules\UserAi\Dto\UserAiContext;
@@ -51,6 +52,7 @@ class SupportReplyService
         private readonly AgentChatClient $chatClient,
         private readonly UserAiRuntime $runtime,
         private readonly ChannelManager $channels,
+        private readonly ?ConversationRuleTaggingService $ruleTagging = null,
     ) {}
 
     /**
@@ -503,6 +505,15 @@ class SupportReplyService
             'level' => $verdict->level,
             'reason' => $verdict->reason,
         ]);
+
+        // 规则打标（打标计划 T5）：与风险拦截是同一件事的两面。
+        // 放在 markRisk 末尾、且 fail-open —— 转人工/通知主链路不能被标签拖住。
+        $this->ruleTagging?->tagFromRisk(
+            (int) $conversation->tenant_id,
+            (int) $conversation->conversation_id,
+            $verdict->reason,
+            $verdict->tag,
+        );
     }
 
     /**
