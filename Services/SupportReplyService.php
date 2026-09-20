@@ -555,10 +555,13 @@ class SupportReplyService
             return [];
         }
 
+        // 会话内顺序的事实源是 sequence（HasConversationSequence 在 creating 时分配，
+        // (conversation_id, sequence) 唯一）。message_id 是 HasGlobalId 的**随机** ID，
+        // 用它排序等于随机顺序 —— 曾经错在这里。不加次级键：sequence 本身在会话内唯一。
         $rows = Message::withoutGlobalScope(TenantScope::class)
             ->where('conversation_id', $conversation->conversation_id)
             ->where('message_id', '!=', $inbound->message_id)
-            ->orderByDesc('message_id')
+            ->orderByDesc('sequence')
             ->limit($limit)
             ->get()
             ->reverse();
