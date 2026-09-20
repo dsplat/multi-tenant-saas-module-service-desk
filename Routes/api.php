@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
+use MultiTenantSaas\Modules\ServiceDesk\Http\Controllers\AdminConfigController;
+use MultiTenantSaas\Modules\ServiceDesk\Http\Controllers\AdminStatsController;
 
 /*
 |--------------------------------------------------------------------------
@@ -15,19 +17,17 @@ use Illuminate\Support\Facades\Route;
 | 权限名用下划线（service_desk.*）—— 与既有先例一致
 | （模块名 developer-portal、权限名 developer_portal.api_key）。
 |
-| ⚠ 本文件暂为空骨架：配置台接口在 M1 后续步骤落地
-|   （AI 参数 / 接待人员 / 度量看板，见 docs/service-desk-design.md §八）。
-|   刻意不放「返回空数据的假端点」——那比没有端点更难排查。
-|
-| 落地时形如：
-|   Route::prefix('service-desk')->group(function () {
-|       Route::get('config', [ServiceDeskConfigController::class, 'show'])
-|           ->middleware('rbac.permission:service_desk.view');
-|       Route::put('config', [ServiceDeskConfigController::class, 'update'])
-|           ->middleware('rbac.permission:service_desk.config');
-|       Route::get('sessions', [ServiceDeskSessionController::class, 'index'])
-|           ->middleware('rbac.permission:service_desk.view');
-|       Route::get('stats', [ServiceDeskStatsController::class, 'index'])
-|           ->middleware('rbac.permission:service_desk.view');
-|   });
+| 待做：接待人员（需渠道侧的 servicer 列表能力，企微 kf 接口待核实后接入）。
 */
+
+Route::prefix('service-desk')->group(function () {
+    // 配置：读当前生效设置（含来源：租户自设 / 部署默认），写只覆盖可改项
+    Route::get('config', [AdminConfigController::class, 'show'])
+        ->middleware('rbac.permission:service_desk.view');
+    Route::put('config', [AdminConfigController::class, 'update'])
+        ->middleware('rbac.permission:service_desk.config');
+
+    // 度量看板
+    Route::get('stats', [AdminStatsController::class, 'index'])
+        ->middleware('rbac.permission:service_desk.view');
+});

@@ -83,7 +83,22 @@ class HandoffService
             ? self::STATE_HUMAN
             : self::STATE_QUEUED;
 
-        $result = $driver->transServiceState($openKfId, $externalUserId, $targetState, $servicerUserId);
+        try {
+            $result = $driver->transServiceState($openKfId, $externalUserId, $targetState, $servicerUserId);
+        } catch (Throwable $e) {
+            // 渠道接口抛异常（网络错误、凭证失效等）与「返回 null」同义：
+            // 都表示渠道侧没转成。这里必须兜住 —— 让它冒到编排层的话，
+            // 用户连「未能接入」都收不到，风险场景下更糟（通知已发出、用户却在干等）。
+            Log::error('[ServiceDesk] 渠道转人工异常', [
+                'tenant_id' => (int) $conversation->tenant_id,
+                'conversation_id' => $conversation->conversation_id,
+                'target_state' => $targetState,
+                'reason' => $reason,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
 
         if ($result === null) {
             // 渠道拒绝（如 state=3 的接待人员未激活 → 企微 95014）：不写镜像、不广播，

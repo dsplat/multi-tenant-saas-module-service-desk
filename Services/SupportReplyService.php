@@ -46,6 +46,7 @@ class SupportReplyService
         private readonly AccessLevelResolver $accessLevels,
         private readonly SupportAgentResolver $agents,
         private readonly SupportEscalationService $escalations,
+        private readonly ServiceDeskSettings $settings,
         private readonly AgentChatClient $chatClient,
         private readonly UserAiRuntime $runtime,
         private readonly ChannelManager $channels,
@@ -108,14 +109,18 @@ class SupportReplyService
         }
 
         // ── 3. 用户主动要求转人工 ────────────────────────────────
-        if ($this->wantsHuman($question)) {
+        if ($this->wantsHuman($conversation, $question)) {
             $this->requestHandoff($conversation, HandoffService::REASON_VISITOR_REQUEST);
 
             return;
         }
 
         // ── 4. 连续未命中达阈值 ─────────────────────────────────
-        $maxUnresolved = max(1, (int) config('service-desk.handoff.max_unresolved_turns', 3));
+        $maxUnresolved = max(1, (int) $this->settings->getForConversation(
+            $conversation,
+            'handoff.max_unresolved_turns',
+            3,
+        ));
 
         if ($this->sessions->getUnresolvedTurns($conversation) >= $maxUnresolved) {
             $this->requestHandoff($conversation, HandoffService::REASON_UNRESOLVED_TURNS);
@@ -327,6 +332,28 @@ class SupportReplyService
                 'sender_kind' => 'ai',
             ],
         ]);
+
+        $this->markFirstResponse($conversation);
+    }
+
+    /**
+     * 记录首次响应时刻（度量「首次响应时长」的起点是会话的 queued_at）
+     *
+     * ⚠ 口径限制：这里记的是 **AI 侧**首次响应。人工回复由坐席在企微工作台发出，
+     * 渠道回调的 origin=5 目前被 fetcher 过滤掉、不入库，因此人工响应时间本地看不到。
+     * 要让「首次响应」包含人工，需把 origin=5 也入库 —— 那会改变会话记录的构成，
+     * 属产品决策（同时影响会话摘要与质检的输入）。
+     */
+    private function markFirstResponse(Conversation $conversation): void
+    {
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+
+        if (isset($metadata['first_response_at'])) {
+            return;
+        }
+
+        $conversation->metadata = $metadata + ['first_response_at' => now()->toIso8601String()];
+        $conversation->save();
     }
 
     /**
@@ -380,9 +407,9 @@ class SupportReplyService
     /**
      * 用户是否在要求转人工
      */
-    private function wantsHuman(string $question): bool
+    private function wantsHuman(Conversation $conversation, string $question): bool
     {
-        if (! (bool) config('service-desk.handoff.allow_visitor_request', true)) {
+        if (! (bool) $this->settings->get((int) $conversation->tenant_id, 'handoff.allow_visitor_request', true)) {
             return false;
         }
 
@@ -404,7 +431,7 @@ class SupportReplyService
      */
     private function history(Conversation $conversation, Message $inbound): array
     {
-        $limit = max(0, (int) config('service-desk.reply.history_turns', 6));
+        $limit = max(0, (int) $this->settings->getForConversation($conversation, 'reply.history_turns', 6));
 
         if ($limit === 0) {
             return [];

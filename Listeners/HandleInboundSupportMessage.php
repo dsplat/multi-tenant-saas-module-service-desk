@@ -10,6 +10,7 @@ use MultiTenantSaas\Events\MessageReceived;
 use MultiTenantSaas\Modules\Conversation\Models\Conversation;
 use MultiTenantSaas\Modules\ServiceDesk\Events\SupportMessageReceived;
 use MultiTenantSaas\Modules\ServiceDesk\Services\IdentityBridgeService;
+use MultiTenantSaas\Modules\ServiceDesk\Services\ServiceDeskSettings;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportAgentResolver;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportSessionService;
 use MultiTenantSaas\Scopes\TenantScope;
@@ -42,6 +43,7 @@ class HandleInboundSupportMessage
         private readonly SupportSessionService $sessions,
         private readonly IdentityBridgeService $identity,
         private readonly SupportAgentResolver $agents,
+        private readonly ServiceDeskSettings $settings,
     ) {}
 
     public function handle(MessageReceived $event): void
@@ -67,7 +69,7 @@ class HandleInboundSupportMessage
 
         try {
             // 会话初始化（幂等）：写入接待态镜像初始值
-            if ((bool) config('service-desk.state_sync.enabled', true)) {
+            if ((bool) $this->settings->getForConversation($conversation, 'state_sync.enabled', true)) {
                 $this->sessions->ensureSession($conversation);
             }
 
@@ -131,7 +133,7 @@ class HandleInboundSupportMessage
      */
     private function isSupportChannel(string $channel): bool
     {
-        return in_array($channel, ['wechat-kf', 'wechat_kf'], true);
+        return in_array($channel, (array) config('service-desk.channels', []), true);
     }
 
     /**

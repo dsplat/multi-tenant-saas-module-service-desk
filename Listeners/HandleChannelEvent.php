@@ -35,11 +35,6 @@ use MultiTenantSaas\Scopes\TenantScope;
 class HandleChannelEvent
 {
     /**
-     * 客服渠道白名单（与 HandleInboundSupportMessage 保持一致）
-     */
-    private const SUPPORT_CHANNELS = ['wechat-kf', 'wechat_kf'];
-
-    /**
      * session_status_change 的 change_type → 接待态镜像
      *
      * 1 从接待池接入会话 / 2 转接会话 / 4 重新接入已结束或已转接会话 → 人工接待中
@@ -62,7 +57,7 @@ class HandleChannelEvent
 
     public function handle(ChannelEventReceived $event): void
     {
-        if (! in_array($event->channel, self::SUPPORT_CHANNELS, true)) {
+        if (! in_array($event->channel, (array) config('service-desk.channels', []), true)) {
             return;
         }
 

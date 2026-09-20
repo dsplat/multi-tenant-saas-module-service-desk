@@ -47,6 +47,7 @@ class SupportEscalationService
     public function __construct(
         private readonly ConversationSummaryService $summaries,
         private readonly TicketService $tickets,
+        private readonly ServiceDeskSettings $settings,
     ) {}
 
     /**
@@ -72,7 +73,7 @@ class SupportEscalationService
      */
     private function refreshSummary(Conversation $conversation): void
     {
-        if (! (bool) config('service-desk.handoff.summary_on_handoff', true)) {
+        if (! (bool) $this->settings->getForConversation($conversation, 'handoff.summary_on_handoff', true)) {
             return;
         }
 
@@ -98,7 +99,7 @@ class SupportEscalationService
         array $notify,
         ?RiskVerdict $verdict,
     ): ?Ticket {
-        if (! (bool) config('service-desk.handoff.ticket_enabled', true)) {
+        if (! (bool) $this->settings->getForConversation($conversation, 'handoff.ticket_enabled', true)) {
             return null;
         }
 

@@ -54,6 +54,25 @@ class SupportAgentResolver
     }
 
     /**
+     * 租户当前的默认客服 Agent（配置台展示用，无会话上下文）
+     *
+     * 与 resolveFor 的差别：只看「租户默认」这一档，不涉及会话绑定。
+     */
+    public function resolveDefaultFor(int $tenantId): ?Agent
+    {
+        try {
+            return $this->defaultSupportAgent($tenantId);
+        } catch (\Throwable $e) {
+            Log::warning('[ServiceDesk] 客服 Agent 查询失败', [
+                'tenant_id' => $tenantId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
      * 解析并绑定到会话（幂等）
      *
      * 绑定后该会话的 AI 行为就固定在这个 Agent 上 —— 租户之后换了默认客服 Agent，
