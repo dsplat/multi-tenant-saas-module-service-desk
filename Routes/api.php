@@ -19,7 +19,7 @@ use MultiTenantSaas\Modules\ServiceDesk\Http\Controllers\AdminStatsController;
 | 权限名用下划线（service_desk.*）—— 与既有先例一致
 | （模块名 developer-portal、权限名 developer_portal.api_key）。
 |
-| 待做：接待人员（需渠道侧的 servicer 列表能力，企微 kf 接口待核实后接入）。
+| 接待人员：已接企微 kf/servicer list+add（框架只做读写代理，不落库）。
 */
 
 // module.enabled：管理配置台接口同样受租户级模块开关约束（开关关掉就不该还能改配置）
