@@ -46,6 +46,7 @@ class SupportEscalationService
 
     public function __construct(
         private readonly ConversationSummaryService $summaries,
+        private readonly SupportAssistService $assist,
         private readonly TicketService $tickets,
         private readonly ServiceDeskSettings $settings,
     ) {}
@@ -63,9 +64,13 @@ class SupportEscalationService
         array $notify = [],
         ?RiskVerdict $verdict = null,
     ): ?Ticket {
+        // 顺序有依赖：先摘要（坐席要「讲了什么」）→ 再据摘要生成建议话术 → 最后建单
+        // （单子描述里同时带上两者，工单阅读者不必再回 console）
         $this->refreshSummary($conversation);
 
-        return $this->openTicket($conversation, $reason, $notify, $verdict);
+        $suggestions = $this->assist->suggestReplies($conversation->refresh());
+
+        return $this->openTicket($conversation, $reason, $notify, $verdict, $suggestions);
     }
 
     /**
@@ -93,11 +98,15 @@ class SupportEscalationService
     /**
      * 建工单（幂等：一个会话最多一张）
      */
+    /**
+     * @param  array<int, string>  $suggestions
+     */
     private function openTicket(
         Conversation $conversation,
         string $reason,
         array $notify,
         ?RiskVerdict $verdict,
+        array $suggestions = [],
     ): ?Ticket {
         if (! (bool) $this->settings->getForConversation($conversation, 'handoff.ticket_enabled', true)) {
             return null;
@@ -113,7 +122,7 @@ class SupportEscalationService
         try {
             $ticket = $this->tickets->create([
                 'subject' => $this->subject($reason),
-                'description' => $this->description($conversation, $reason, $verdict, $metadata),
+                'description' => $this->description($conversation, $reason, $verdict, $metadata, $suggestions),
                 'priority' => self::PRIORITY_BY_REASON[$reason] ?? 'medium',
                 // 用原因码当分类，便于按「为什么转人工」筛选与统计
                 'category' => $reason,
@@ -153,11 +162,15 @@ class SupportEscalationService
     /**
      * @param  array<string, mixed>  $metadata
      */
+    /**
+     * @param  array<int, string>  $suggestions
+     */
     private function description(
         Conversation $conversation,
         string $reason,
         ?RiskVerdict $verdict,
         array $metadata,
+        array $suggestions = [],
     ): string {
         $lines = [
             '来源：智能客服转人工',
@@ -182,6 +195,15 @@ class SupportEscalationService
             $lines[] = '';
             $lines[] = '【会话摘要】';
             $lines[] = mb_substr($summary, 0, 1000);
+        }
+
+        if ($suggestions !== []) {
+            // 建议话术直接放在工单里：坐席在企微工作台，回 console 看会话不现实
+            $lines[] = '';
+            $lines[] = '【建议话术】';
+            foreach ($suggestions as $i => $suggestion) {
+                $lines[] = ($i + 1) . '. ' . $suggestion;
+            }
         }
 
         return implode("\n", $lines);

@@ -58,6 +58,17 @@ class NotifyHandoffTargets
         $body = $event->verdict?->message
             ?? '用户消息触发了转人工，请尽快接入会话。';
 
+        // 附上 AI 生成的建议话术：坐席在企微工作台里，回 console 看会话不现实，
+        // 通知正文是他们唯一方便读到建议的地方
+        $suggestions = (array) (($event->conversation->metadata ?? [])['suggested_replies'] ?? []);
+
+        if ($suggestions !== []) {
+            $body .= "\n\n建议话术：";
+            foreach ($suggestions as $i => $suggestion) {
+                $body .= "\n" . ($i + 1) . '. ' . $suggestion;
+            }
+        }
+
         foreach ($userIds as $userId) {
             try {
                 $this->notifications->create([

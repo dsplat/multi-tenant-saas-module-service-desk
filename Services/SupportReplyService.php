@@ -180,10 +180,11 @@ class SupportReplyService
 
         $notify = $verdict?->notify ?? [];
 
-        $this->notifyHumans($conversation, $reason, $verdict, $notify);
-
-        // 坐席接手前把「讲了什么」与「后续跟进」备好（失败不影响转人工本身）
+        // 先备好坐席所需（摘要 / 建议话术 / 工单，失败不影响转人工本身），
+        // 再通知 —— 这样通知正文里能带上建议话术，坐席在企微里就能直接用
         $this->escalations->escalate($conversation, $reason, $notify, $verdict);
+
+        $this->notifyHumans($conversation, $reason, $verdict, $notify);
 
         if (! $synced) {
             Log::error('[ServiceDesk] 转人工：渠道流转失败，已仅完成通知', [

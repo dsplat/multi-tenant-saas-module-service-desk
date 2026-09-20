@@ -58,6 +58,8 @@ return [
         'summary_on_handoff' => (bool) env('SERVICE_DESK_SUMMARY_ON_HANDOFF', true),
         // 转人工时建工单（人工队列不该是漏斗底部：要有可跟进、可统计的落点）
         'ticket_enabled' => (bool) env('SERVICE_DESK_TICKET_ENABLED', true),
+        // 转人工时生成建议话术给坐席（每次转人工一次模型调用，可按租户关掉）
+        'suggest_replies' => (bool) env('SERVICE_DESK_SUGGEST_REPLIES', true),
     ],
 
     /*
