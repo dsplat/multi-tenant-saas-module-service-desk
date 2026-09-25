@@ -1,6 +1,5 @@
 {
     "name": "dsplat/multi-tenant-saas-module-service-desk",
-    "version": "1.0.0",
     "description": "智能客服",
     "type": "library",
     "license": "MIT",
