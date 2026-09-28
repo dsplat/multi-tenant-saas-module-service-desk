@@ -40,12 +40,14 @@ class ServiceDeskSettings
      */
     public const EDITABLE = [
         'handoff.max_unresolved_turns' => ['int', 'service-desk.handoff.max_unresolved_turns'],
+        'handoff.auto_on_no_answer' => ['bool', 'service-desk.handoff.auto_on_no_answer'],
         'handoff.allow_visitor_request' => ['bool', 'service-desk.handoff.allow_visitor_request'],
         'handoff.summary_on_handoff' => ['bool', 'service-desk.handoff.summary_on_handoff'],
         'handoff.ticket_enabled' => ['bool', 'service-desk.handoff.ticket_enabled'],
         'handoff.suggest_replies' => ['bool', 'service-desk.handoff.suggest_replies'],
         'state_sync.enabled' => ['bool', 'service-desk.state_sync.enabled'],
         'reply.history_turns' => ['int', 'service-desk.reply.history_turns'],
+        'reply.no_answer' => ['string', 'service-desk.reply.no_answer'],
         'satisfaction.enabled' => ['bool', 'service-desk.satisfaction.enabled'],
         'satisfaction.prompt_on_close' => ['bool', 'service-desk.satisfaction.prompt_on_close'],
         'satisfaction.options' => ['array', 'service-desk.satisfaction.options'],

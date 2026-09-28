@@ -321,14 +321,29 @@ class SupportReplyService
             return;
         }
 
-        // 命中知识库则清零未解决计数，未命中则累加（下一轮可能触发转人工）
-        if (($result['sources'] ?? []) === []) {
-            $this->sessions->incrementUnresolved($conversation);
-        } else {
+        // 命中知识库：清零未解决计数，正常回复
+        if (($result['sources'] ?? []) !== []) {
             $this->sessions->resetUnresolved($conversation);
+            $this->reply($conversation, (string) ($result['answer'] ?? ''));
+
+            return;
         }
 
-        $this->reply($conversation, (string) ($result['answer'] ?? ''));
+        // 未命中知识库：累加未解决计数（供 max_unresolved_turns 兜底），再按租户配置决定处理方式
+        $this->sessions->incrementUnresolved($conversation);
+
+        // 自动模式：首轮未命中即转人工，不等用户确认
+        if ((bool) $this->settings->getForConversation($conversation, 'handoff.auto_on_no_answer', false)) {
+            $this->requestHandoff($conversation, HandoffService::REASON_UNRESOLVED_TURNS);
+
+            return;
+        }
+
+        // 提醒模式（默认）：回复可配的「提醒转人工」文案，用户输入「转人工」再转。
+        // 此前 reply.no_answer 是死配置（无人引用），实际回的是 UserAi 层无引导的 empty_answer。
+        $noAnswer = trim((string) $this->settings->getForConversation($conversation, 'reply.no_answer', ''));
+
+        $this->reply($conversation, $noAnswer !== '' ? $noAnswer : (string) ($result['answer'] ?? ''));
     }
 
     /**

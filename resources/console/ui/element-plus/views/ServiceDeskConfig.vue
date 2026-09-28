@@ -88,12 +88,13 @@ import { ElMessage } from 'element-plus'
 
 const API = '/api/v1/service-desk/config'
 
-// 可编辑项与后端 ServiceDeskSettings::EDITABLE 一一对应（11 项）
+// 可编辑项与后端 ServiceDeskSettings::EDITABLE 一一对应（13 项）
 interface Field { key: string; label: string; type: 'bool' | 'int' | 'array' | 'string'; tip?: string; min?: number; max?: number }
 const GROUPS: { key: string; label: string; fields: Field[] }[] = [
   {
     key: 'handoff', label: '转人工', fields: [
       { key: 'handoff.max_unresolved_turns', label: '连续未命中转人工轮数', type: 'int', min: 1, max: 20, tip: '连续 N 轮未命中知识库后自动转人工' },
+      { key: 'handoff.auto_on_no_answer', label: '答不上时自动转人工', type: 'bool', tip: '开＝检索无命中首轮即自动转人工；关＝回复提醒文案，用户输入「转人工」再转' },
       { key: 'handoff.allow_visitor_request', label: '允许用户主动转人工', type: 'bool', tip: '识别「转人工/人工客服」等表述' },
       { key: 'handoff.summary_on_handoff', label: '转人工时刷新会话摘要', type: 'bool', tip: '坐席接手时最需要「这段会话讲了什么」' },
       { key: 'handoff.ticket_enabled', label: '转人工时建工单', type: 'bool', tip: '未解决要有可跟进、可统计的落点' },
@@ -108,6 +109,7 @@ const GROUPS: { key: string; label: string; fields: Field[] }[] = [
   {
     key: 'reply', label: '应答', fields: [
       { key: 'reply.history_turns', label: 'AI 合成历史轮数', type: 'int', min: 0, max: 20, tip: '0 = 不带历史，退化为单轮问答' },
+      { key: 'reply.no_answer', label: '答不上提醒文案', type: 'string', tip: '未开启自动转人工时，检索无命中回复此文案；建议含「转人工」引导' },
     ],
   },
   {

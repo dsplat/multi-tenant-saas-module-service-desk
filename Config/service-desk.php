@@ -30,8 +30,9 @@ return [
     | 应答行为
     */
     'reply' => [
-        // RAG 无命中时的兜底
-        'no_answer' => '抱歉，我暂时没有找到相关信息。您可以换个说法再问，或者我帮您转接人工。',
+        // RAG 无命中且**未开启**自动转人工（handoff.auto_on_no_answer=false）时，回复此「提醒转人工」文案；
+        // 用户随后输入「转人工」即由 SupportReplyService::wantsHuman() 转接。可按租户在配置台改写。
+        'no_answer' => '抱歉，我暂时没有找到相关信息。您可以换个说法再问，或回复「转人工」由人工客服帮您。',
         // 转人工时给用户的提示
         'handoff_notice' => '已为您转接人工客服，请稍候。',
         // 转人工**失败**时的提示（不能假装已转接，否则用户在那头干等）
@@ -52,6 +53,10 @@ return [
     'handoff' => [
         // 连续 N 轮未命中知识库 → 转人工
         'max_unresolved_turns' => (int) env('SERVICE_DESK_MAX_UNRESOLVED_TURNS', 3),
+        // 答不上（检索无命中）时的处理：
+        //   false = 提醒用户手动转人工（回复 reply.no_answer 文案，用户输入「转人工」再转）
+        //   true  = 直接自动转人工（首轮未命中即转，不等 max_unresolved_turns）
+        'auto_on_no_answer' => (bool) env('SERVICE_DESK_AUTO_ON_NO_ANSWER', false),
         // 是否允许用户主动要求转人工（关键词 + 意图）
         'allow_visitor_request' => true,
         // 转人工时刷新会话摘要（坐席接手时最需要「这段会话讲了什么」）
