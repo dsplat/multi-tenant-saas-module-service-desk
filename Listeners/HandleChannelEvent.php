@@ -137,6 +137,13 @@ class HandleChannelEvent
         $inner = $this->eventBody($event);
         $changeType = (int) ($inner['change_type'] ?? 0);
 
+        // 坐实坐席接入事件是否真的推到了回调、带没带 code（P1 历史对这类事件零命中）
+        Log::info('[ServiceDesk] 收到 session_status_change 事件', [
+            'change_type' => $changeType,
+            'has_msg_code' => ($inner['msg_code'] ?? '') !== '',
+            'servicer' => $inner['new_servicer_userid'] ?? null,
+        ]);
+
         if ($changeType === 0) {
             return;
         }
