@@ -48,6 +48,8 @@ class ServiceDeskSettings
         'handoff.notify_on_accept' => ['bool', 'service-desk.handoff.notify_on_accept'],
         'state_sync.enabled' => ['bool', 'service-desk.state_sync.enabled'],
         'reply.history_turns' => ['int', 'service-desk.reply.history_turns'],
+        'reply.auto_greeting' => ['bool', 'service-desk.reply.auto_greeting'],
+        'reply.greeting_text' => ['string', 'service-desk.reply.greeting_text'],
         'reply.no_answer' => ['string', 'service-desk.reply.no_answer'],
         'reply.handoff_notice' => ['string', 'service-desk.reply.handoff_notice'],
         'reply.accept_notice' => ['string', 'service-desk.reply.accept_notice'],

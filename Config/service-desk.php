@@ -30,6 +30,10 @@ return [
     | 应答行为
     */
     'reply' => [
+        // 用户首次发消息时立即回复的招呼语（在 AI 处理之前），降低用户等待焦虑；
+        // 只在会话的第一条用户消息时触发一次，后续消息不再发。
+        'auto_greeting' => (bool) env('SERVICE_DESK_AUTO_GREETING', true),
+        'greeting_text' => '您好，我是智能客服助手，正在为您查询，请稍候…',
         // RAG 无命中且**未开启**自动转人工（handoff.auto_on_no_answer=false）时，回复此「提醒转人工」文案；
         // 用户随后输入「转人工」即由 SupportReplyService::wantsHuman() 转接。可按租户在配置台改写。
         'no_answer' => '抱歉，我暂时没有找到相关信息。您可以换个说法再问，或回复「转人工」由人工客服帮您。',

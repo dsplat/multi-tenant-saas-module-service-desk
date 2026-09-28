@@ -58,8 +58,9 @@
           </el-form-item>
         </template>
       </el-form>
-      <el-button type="primary" :loading="saving" @click="save">保存改动</el-button>
-      <el-button :disabled="saving" @click="load">重置</el-button>
+      <el-alert v-if="loadError" type="error" :closable="false" show-icon title="加载失败" description="无法获取当前配置，保存已禁用。请检查权限或网络后点击「重试」。" style="margin-bottom: 12px" />
+      <el-button type="primary" :loading="saving" :disabled="loadError" @click="save">保存改动</el-button>
+      <el-button :disabled="saving" @click="load">{{ loadError ? '重试' : '重置' }}</el-button>
       <span v-if="dirtyCount > 0" class="form-tip" style="margin-left: 12px">{{ dirtyCount }} 项已修改（仅提交改动项）</span>
     </el-card>
 
@@ -88,7 +89,7 @@ import { ElMessage } from 'element-plus'
 
 const API = '/api/v1/service-desk/config'
 
-// 可编辑项与后端 ServiceDeskSettings::EDITABLE 一一对应（16 项）
+// 可编辑项与后端 ServiceDeskSettings::EDITABLE 一一对应（18 项）
 interface Field { key: string; label: string; type: 'bool' | 'int' | 'array' | 'string'; tip?: string; min?: number; max?: number }
 const GROUPS: { key: string; label: string; fields: Field[] }[] = [
   {
@@ -109,6 +110,8 @@ const GROUPS: { key: string; label: string; fields: Field[] }[] = [
   },
   {
     key: 'reply', label: '应答', fields: [
+      { key: 'reply.auto_greeting', label: '首次消息自动招呼', type: 'bool', tip: '开＝用户发第一条消息时立即回复招呼语，不等 AI 生成完成' },
+      { key: 'reply.greeting_text', label: '招呼语文案', type: 'string', tip: '自动招呼的内容，建议含「正在查询/请稍候」' },
       { key: 'reply.history_turns', label: 'AI 合成历史轮数', type: 'int', min: 0, max: 20, tip: '0 = 不带历史，退化为单轮问答' },
       { key: 'reply.no_answer', label: '答不上提醒文案', type: 'string', tip: '未开启自动转人工时，检索无命中回复此文案；建议含「转人工」引导' },
       { key: 'reply.handoff_notice', label: '转人工排队提示', type: 'string', tip: '转人工（进入待接入池）时给用户的一条提示，建议说明「排队中、请稍候、非工作时间顺延」' },
@@ -127,6 +130,7 @@ const GROUPS: { key: string; label: string; fields: Field[] }[] = [
 
 const loading = ref(false)
 const saving = ref(false)
+const loadError = ref(false)
 const agent = ref<any>({ configured: false })
 const channels = ref<string[]>([])
 const toolSurface = ref<string[]>([])
@@ -164,8 +168,12 @@ const load = async () => {
       }
     }
     original = JSON.parse(JSON.stringify(form))
+    loadError.value = false
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '加载配置失败')
+    // GET 失败时将 original 同步为当前 form 默认值，阻止全字段标脏误提交
+    original = JSON.parse(JSON.stringify(form))
+    loadError.value = true
   } finally {
     loading.value = false
   }

@@ -122,6 +122,9 @@ class SupportReplyService
             return;
         }
 
+        // ── 2.5 自动招呼：首次用户消息时立即回复，降低等待焦虑 ──────
+        $this->sendAutoGreeting($conversation);
+
         // ── 3. 风险拦截：强制转人工（优先于用户的请求） ───────────
         $verdict = $this->risk->inspect($conversation, $question);
 
@@ -222,6 +225,46 @@ class SupportReplyService
         Log::info('[ServiceDesk] 人工接待中，机器人侧不发消息（企微 95018 限制），仅记录一次', [
             'conversation_id' => $conversation->conversation_id,
         ]);
+    }
+
+    /**
+     * 自动招呼：会话首次用户消息时立即发送，不等 AI 生成完成
+     *
+     * 降低用户等待焦虑：AI 应答需经 RAG + 模型推理，耗时可达数十秒；
+     * 先即时发一句「正在为您查询」，用户知道系统已收到。
+     * 只在会话维度触发一次（metadata['greeting_sent'] 去重）。
+     */
+    private function sendAutoGreeting(Conversation $conversation): void
+    {
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+
+        if (isset($metadata['greeting_sent'])) {
+            return;
+        }
+
+        $enabled = (bool) $this->settings->getForConversation($conversation, 'reply.auto_greeting', true);
+
+        if (! $enabled) {
+            // 关闭时也打标，避免每次消息都进这个分支查询
+            $conversation->metadata = $metadata + ['greeting_sent' => false];
+            $conversation->save();
+
+            return;
+        }
+
+        $text = (string) $this->settings->getForConversation(
+            $conversation,
+            'reply.greeting_text',
+            '您好，我是智能客服助手，正在为您查询，请稍候…',
+        );
+
+        $this->reply($conversation, $text);
+
+        // 重新读取 metadata（reply 内 markFirstResponse 可能已修改）
+        $conversation->refresh();
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $conversation->metadata = $metadata + ['greeting_sent' => now()->toIso8601String()];
+        $conversation->save();
     }
 
     /**

@@ -6,6 +6,7 @@ namespace MultiTenantSaas\Modules\ServiceDesk;
 
 use Illuminate\Support\Facades\Event;
 use MultiTenantSaas\Contracts\ToolAccessRequirementContract;
+use MultiTenantSaas\Contracts\ToolRegistryContract;
 use MultiTenantSaas\Events\ChannelEventReceived;
 use MultiTenantSaas\Events\MessageReceived;
 use MultiTenantSaas\Modules\Contracts\ModuleServiceProvider;
@@ -31,6 +32,8 @@ use MultiTenantSaas\Modules\ServiceDesk\Services\SupportAssistService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportEscalationService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportReplyService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportSessionService;
+use MultiTenantSaas\Modules\ServiceDesk\Services\Tools\ServiceDeskConfigHandler;
+use MultiTenantSaas\Modules\ServiceDesk\Services\Tools\ServiceDeskStatsHandler;
 
 /**
  * 智能客服模块
@@ -83,6 +86,7 @@ class ServiceDeskServiceProvider extends ModuleServiceProvider
         $this->registerChannelEventWiring();
         $this->registerReplyWiring();
         $this->registerHandoffNotificationWiring();
+        $this->registerTools();
     }
 
     /**
@@ -141,6 +145,38 @@ class ServiceDeskServiceProvider extends ModuleServiceProvider
         Event::listen(
             SupportHandoffRequested::class,
             NotifyHandoffTargets::class,
+        );
+    }
+
+    /**
+     * AI 工具注册：让 AI 秘书能查询客服统计与当前配置
+     */
+    private function registerTools(): void
+    {
+        if (! $this->app->bound(ToolRegistryContract::class)) {
+            return;
+        }
+
+        $registry = $this->app->make(ToolRegistryContract::class);
+
+        $registry->register(
+            'service_desk_stats',
+            'Service Desk Stats',
+            '查询客服接待统计（会话数、AI解决率、平均响应时长等）',
+            ServiceDeskStatsHandler::class,
+            ['type' => 'object', 'properties' => ['from' => ['type' => 'string', 'description' => '起始日期 (Y-m-d)'], 'to' => ['type' => 'string', 'description' => '截止日期 (Y-m-d)']]],
+            'service_desk',
+            'L1',
+        );
+
+        $registry->register(
+            'service_desk_config',
+            'Service Desk Config',
+            '读取当前客服策略配置（转人工规则、应答文案、满意度采集等）',
+            ServiceDeskConfigHandler::class,
+            ['type' => 'object', 'properties' => []],
+            'service_desk',
+            'L1',
         );
     }
 }
