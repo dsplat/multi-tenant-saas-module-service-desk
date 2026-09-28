@@ -195,27 +195,29 @@ class SupportReplyService
     }
 
     /**
-     * 人工接待中给用户一次「有人在看」的提示（一会话只发一次）
+     * 人工接待中：机器人侧**不发消息**（一会话只记录一次）
+     *
+     * 会话在「待接入池 / 人工接待」态时，企微禁止用 kf/send_msg 普通接口主动发消息
+     * （errcode 95018：会话状态不允许发送），而这条提示由普通入站消息触发、
+     * 没有可用的事件 code，因此它**永远发不出去**——过去每条消息都尝试一次，
+     * 只留下 95018 噪音，还把 human_serving_notice_at 标成「已发」（其实没发）。
+     * 人工态下用户由坐席在企微客户端回复，机器人不该、也无法再插一句。
      */
     private function noticeHumanServing(Conversation $conversation): void
     {
-        $notice = trim((string) config('service-desk.reply.human_serving_notice', ''));
-
-        if ($notice === '') {
-            return;
-        }
-
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
 
         if (isset($metadata['human_serving_notice_at'])) {
             return;
         }
 
-        // 先写标记再发：宁可漏发一次提示，也不要每条消息都刷屏
+        // 仅作「已确认一次」的去重标记，不代表真的发出了消息（发不出去，见方法注释）
         $conversation->metadata = $metadata + ['human_serving_notice_at' => now()->toIso8601String()];
         $conversation->save();
 
-        $this->reply($conversation, $notice);
+        Log::info('[ServiceDesk] 人工接待中，机器人侧不发消息（企微 95018 限制），仅记录一次', [
+            'conversation_id' => $conversation->conversation_id,
+        ]);
     }
 
     /**
@@ -290,8 +292,27 @@ class SupportReplyService
             return;
         }
 
-        $this->reply($conversation, $verdict?->message
-            ?? (string) config('service-desk.reply.handoff_notice', '已为您转接人工客服，请稍候。'));
+        // 转接成功后会话已在渠道侧进入排队/人工态：普通 kf/send_msg 会被 95018 拒，
+        // 必须用转接返回的 msg_code 经 kf/send_msg_on_event 下发（HandoffService 已记进 metadata）。
+        $this->reply(
+            $conversation,
+            $verdict?->message ?? (string) config('service-desk.reply.handoff_notice', '已为您转接人工客服，请稍候。'),
+            $this->handoffMsgCode($conversation),
+        );
+    }
+
+    /**
+     * 转接返回的 msg_code（HandoffService::recordHandoff 写进 conversations.metadata）
+     *
+     * 企微在会话状态变更为待接入池/人工接待时返回一个一次性 code，只能用它经
+     * kf/send_msg_on_event 下发消息；这些态下普通 kf/send_msg 会被 95018 拒。
+     */
+    private function handoffMsgCode(Conversation $conversation): ?string
+    {
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $code = $metadata['handoff_msg_code'] ?? null;
+
+        return is_string($code) && $code !== '' ? $code : null;
     }
 
     /**
@@ -412,8 +433,11 @@ class SupportReplyService
      *
      * 回复以 sender_type=agent + metadata.sender_kind='ai' 入库：这样会话记录里
      * 「AI 说的」与「人工说的」可区分（设计 §5.1），质检与审计都要靠这个区分。
+     *
+     * @param  string|null  $eventCode  转接返回的 msg_code；非空时走 kf/send_msg_on_event
+     *                                  （会话已转入排队/人工态，普通 kf/send_msg 会被 95018 拒）
      */
-    private function reply(Conversation $conversation, string $content): void
+    private function reply(Conversation $conversation, string $content, ?string $eventCode = null): void
     {
         $content = trim($content);
 
@@ -433,7 +457,9 @@ class SupportReplyService
         }
 
         try {
-            $sent = $driver->sendMessage($conversation, ['msgtype' => 'text', 'text' => ['content' => $content]]);
+            $sent = $eventCode !== null && $eventCode !== ''
+                ? $driver->sendEventReply($eventCode, $content)
+                : $driver->sendMessage($conversation, ['msgtype' => 'text', 'text' => ['content' => $content]]);
         } catch (Throwable $e) {
             Log::error('[ServiceDesk] 回复发送失败', [
                 'conversation_id' => $conversation->conversation_id,
