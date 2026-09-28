@@ -368,11 +368,19 @@ class SupportReplyService
             return;
         }
 
-        // 提醒模式（默认）：回复可配的「提醒转人工」文案，用户输入「转人工」再转。
-        // 此前 reply.no_answer 是死配置（无人引用），实际回的是 UserAi 层无引导的 empty_answer。
+        // 提醒模式（默认）：优先采纳模型的引导回复（UserAi 层无资料时会接住寒暄并追问
+        // 澄清诉求），仅当模型空回复时，才退回可配的「提醒转人工」文案 reply.no_answer。
+        $guidance = trim((string) ($result['answer'] ?? ''));
+
+        if ($guidance !== '') {
+            $this->reply($conversation, $guidance);
+
+            return;
+        }
+
         $noAnswer = trim((string) $this->settings->getForConversation($conversation, 'reply.no_answer', ''));
 
-        $this->reply($conversation, $noAnswer !== '' ? $noAnswer : (string) ($result['answer'] ?? ''));
+        $this->reply($conversation, $noAnswer);
     }
 
     /**
