@@ -296,7 +296,11 @@ class SupportReplyService
         // 必须用转接返回的 msg_code 经 kf/send_msg_on_event 下发（HandoffService 已记进 metadata）。
         $this->reply(
             $conversation,
-            $verdict?->message ?? (string) config('service-desk.reply.handoff_notice', '已为您转接人工客服，请稍候。'),
+            $verdict?->message ?? (string) $this->settings->getForConversation(
+                $conversation,
+                'reply.handoff_notice',
+                '已为您转人工，正在排队等待客服接入，可能需要稍等，请耐心等待；非工作时间将顺延。',
+            ),
             $this->handoffMsgCode($conversation),
         );
     }

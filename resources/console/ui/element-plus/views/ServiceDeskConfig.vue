@@ -88,7 +88,7 @@ import { ElMessage } from 'element-plus'
 
 const API = '/api/v1/service-desk/config'
 
-// 可编辑项与后端 ServiceDeskSettings::EDITABLE 一一对应（13 项）
+// 可编辑项与后端 ServiceDeskSettings::EDITABLE 一一对应（16 项）
 interface Field { key: string; label: string; type: 'bool' | 'int' | 'array' | 'string'; tip?: string; min?: number; max?: number }
 const GROUPS: { key: string; label: string; fields: Field[] }[] = [
   {
@@ -99,6 +99,7 @@ const GROUPS: { key: string; label: string; fields: Field[] }[] = [
       { key: 'handoff.summary_on_handoff', label: '转人工时刷新会话摘要', type: 'bool', tip: '坐席接手时最需要「这段会话讲了什么」' },
       { key: 'handoff.ticket_enabled', label: '转人工时建工单', type: 'bool', tip: '未解决要有可跟进、可统计的落点' },
       { key: 'handoff.suggest_replies', label: '转人工时生成建议话术', type: 'bool', tip: '每次转人工一次模型调用，可按租户关掉' },
+      { key: 'handoff.notify_on_accept', label: '坐席接入时提示用户', type: 'bool', tip: '开＝人工客服在企微客户端接入会话时，自动给用户发一条「已接入、请稍候」提示' },
     ],
   },
   {
@@ -110,6 +111,8 @@ const GROUPS: { key: string; label: string; fields: Field[] }[] = [
     key: 'reply', label: '应答', fields: [
       { key: 'reply.history_turns', label: 'AI 合成历史轮数', type: 'int', min: 0, max: 20, tip: '0 = 不带历史，退化为单轮问答' },
       { key: 'reply.no_answer', label: '答不上提醒文案', type: 'string', tip: '未开启自动转人工时，检索无命中回复此文案；建议含「转人工」引导' },
+      { key: 'reply.handoff_notice', label: '转人工排队提示', type: 'string', tip: '转人工（进入待接入池）时给用户的一条提示，建议说明「排队中、请稍候、非工作时间顺延」' },
+      { key: 'reply.accept_notice', label: '人工已接入提示', type: 'string', tip: '坐席在企微客户端接入会话时给用户的一条提示，让用户知道已有人接手' },
     ],
   },
   {

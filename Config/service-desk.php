@@ -33,8 +33,12 @@ return [
         // RAG 无命中且**未开启**自动转人工（handoff.auto_on_no_answer=false）时，回复此「提醒转人工」文案；
         // 用户随后输入「转人工」即由 SupportReplyService::wantsHuman() 转接。可按租户在配置台改写。
         'no_answer' => '抱歉，我暂时没有找到相关信息。您可以换个说法再问，或回复「转人工」由人工客服帮您。',
-        // 转人工时给用户的提示
-        'handoff_notice' => '已为您转接人工客服，请稍候。',
+        // 转人工（进入待接入池排队）时给用户的提示：说清「在排队、请等待、非工作时间顺延」，
+        // 避免用户被静默丢进队列无人应答（经 trans 返回的排队 code 下发，48h 内可发 1 条）
+        'handoff_notice' => '已为您转人工，正在排队等待客服接入，可能需要稍等，请耐心等待；非工作时间将顺延。',
+        // 坐席在企微客户端真正接入会话（从接待池接入）时给用户的提示：让用户知道「已有人接手」
+        // （经 session_status_change 事件的 code 下发，见 HandleChannelEvent::notifyServicerAccepted）
+        'accept_notice' => '人工客服已接入，正在为您处理，请稍候。',
         // 转人工**失败**时的提示（不能假装已转接，否则用户在那头干等）
         'handoff_failed_notice' => '抱歉，人工客服暂时未能接入，您可以继续问我，或稍后再试。',
         // 命中 block 级风险时的安全文案
@@ -65,6 +69,8 @@ return [
         'ticket_enabled' => (bool) env('SERVICE_DESK_TICKET_ENABLED', true),
         // 转人工时生成建议话术给坐席（每次转人工一次模型调用，可按租户关掉）
         'suggest_replies' => (bool) env('SERVICE_DESK_SUGGEST_REPLIES', true),
+        // 坐席接入会话时是否给用户发一条「人工已接入」提示（经接入事件 code 下发）
+        'notify_on_accept' => (bool) env('SERVICE_DESK_NOTIFY_ON_ACCEPT', true),
     ],
 
     /*

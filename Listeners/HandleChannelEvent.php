@@ -12,6 +12,7 @@ use MultiTenantSaas\Modules\Conversation\Models\Conversation;
 use MultiTenantSaas\Modules\ServiceDesk\Services\IdentityBridgeService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SatisfactionService;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SceneCodeService;
+use MultiTenantSaas\Modules\ServiceDesk\Services\ServiceDeskSettings;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportSessionService;
 use MultiTenantSaas\Scopes\TenantScope;
 use MultiTenantSaas\Services\Channel\ChannelManager;
@@ -33,7 +34,7 @@ use MultiTenantSaas\Services\Channel\ChannelManager;
  *
  * 有意不做的事：
  *   - 不在此处创建会话（会话归属 ConversationRouter，事件不该凭空造会话）
- *   - 不在此处发消息（欢迎语属应答链路）
+ *   - 不在此处发**应答/欢迎**消息（那属应答链路）；仅在坐席接入时用事件 code 补一条「已接入」状态提示
  */
 class HandleChannelEvent
 {
@@ -57,6 +58,7 @@ class HandleChannelEvent
         private readonly IdentityBridgeService $identity,
         private readonly SupportSessionService $sessions,
         private readonly SatisfactionService $satisfaction,
+        private readonly ServiceDeskSettings $settings,
         private readonly ChannelManager $channels,
     ) {}
 
@@ -163,6 +165,48 @@ class HandleChannelEvent
                 self::STATE_HUMAN,
                 $servicer !== '' ? $servicer : null,
             );
+
+            // 坐席从接待池接入 = 用户终于有人接手：用事件带的 code 补一条「已接入」提示
+            $this->notifyServicerAccepted($conversation, (string) ($inner['msg_code'] ?? ''));
+        }
+    }
+
+    /**
+     * 坐席从接待池接入会话 → 经事件 code 给用户发一条「人工已接入」提示
+     *
+     * session_status_change 由坐席在企微客户端操作触发（我们 API 转人工不产生它），
+     * 正是「用户被静默丢进队列后终于有人接手」的时刻。官方「从接待池接入会话」场景
+     * 明确允许用该事件回调带的 code 经 send_msg_on_event 下发 1 条提示（48h 内、一次性）。
+     *
+     * 去重：企微事件 at-least-once 投递，同一 msg_code 只应下发一次，按 code 记一次。
+     */
+    private function notifyServicerAccepted(Conversation $conversation, string $msgCode): void
+    {
+        if ($msgCode === '' || ! (bool) $this->settings->getForConversation($conversation, 'handoff.notify_on_accept', true)) {
+            return;
+        }
+
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+
+        if (($metadata['accept_notice_code'] ?? null) === $msgCode) {
+            return;
+        }
+
+        $driver = $this->supportDriver($conversation);
+
+        if ($driver === null) {
+            return;
+        }
+
+        $conversation->metadata = $metadata + ['accept_notice_code' => $msgCode];
+        $conversation->save();
+
+        $text = (string) $this->settings->getForConversation($conversation, 'reply.accept_notice', '人工客服已接入，正在为您处理，请稍候。');
+
+        if ($driver->sendEventReply($msgCode, $text)) {
+            Log::info('[ServiceDesk] 坐席接入，已下发「人工已接入」提示', [
+                'conversation_id' => $conversation->conversation_id,
+            ]);
         }
     }
 
