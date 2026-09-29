@@ -174,9 +174,9 @@ class ServiceDeskServiceProvider extends ModuleServiceProvider
             70,
         );
 
-        $registry->registerCard('sd-config', 'service-desk', '客服策略配置', '配置 AI 接待策略、转人工规则与应答文案', null, null, '/console/service-desk-config');
-        $registry->registerCard('sd-stats', 'service-desk', '客服看板', '查看 AI 应答质量、解决率与坐席接待统计', null, null, '/console/service-desk-stats');
-        $registry->registerCard('sd-servicers', 'service-desk', '接待人员管理', '管理坐席列表与接待池分配', null, null, '/console/service-desk-servicers');
+        $registry->registerCard('sd-config', 'service-desk', '客服策略配置', '配置 AI 接待策略、转人工规则与应答文案', null, null, '/service-desk-config');
+        $registry->registerCard('sd-stats', 'service-desk', '客服看板', '查看 AI 应答质量、解决率与坐席接待统计', null, null, '/service-desk-stats');
+        $registry->registerCard('sd-servicers', 'service-desk', '接待人员管理', '管理坐席列表与接待池分配', null, null, '/service-desk-servicers');
     }
 
     /**
