@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MultiTenantSaas\Modules\ServiceDesk;
 
 use Illuminate\Support\Facades\Event;
+use MultiTenantSaas\Contracts\SceneRegistryContract;
 use MultiTenantSaas\Contracts\ToolAccessRequirementContract;
 use MultiTenantSaas\Contracts\ToolRegistryContract;
 use MultiTenantSaas\Events\ChannelEventReceived;
@@ -87,6 +88,7 @@ class ServiceDeskServiceProvider extends ModuleServiceProvider
         $this->registerReplyWiring();
         $this->registerHandoffNotificationWiring();
         $this->registerTools();
+        $this->registerScenes();
     }
 
     /**
@@ -146,6 +148,35 @@ class ServiceDeskServiceProvider extends ModuleServiceProvider
             SupportHandoffRequested::class,
             NotifyHandoffTargets::class,
         );
+    }
+
+    /**
+     * AI 场景自注册（场景注册表契约的直用首样本）
+     *
+     * 模块注册能力 + 默认调用：直用模式下游零接线即获得 AI 模式「智能客服」
+     * 场景与 3 张直达卡；下游可同 slug/id 再注册覆盖（last-wins）做策展特化。
+     * fallback 为 loadModuleViews() 自动发现的扁平路径（本模块无 routes.ts，
+     * 写嵌套路径会回落 dashboard）。
+     */
+    private function registerScenes(): void
+    {
+        if (! $this->app->bound(SceneRegistryContract::class)) {
+            return;
+        }
+
+        $registry = $this->app->make(SceneRegistryContract::class);
+
+        $registry->registerScene(
+            'service-desk',
+            '智能客服',
+            'Service',
+            '微信客服 AI 接待、排队与坐席管理',
+            70,
+        );
+
+        $registry->registerCard('sd-config', 'service-desk', '客服策略配置', '配置 AI 接待策略、转人工规则与应答文案', null, null, '/console/service-desk-config');
+        $registry->registerCard('sd-stats', 'service-desk', '客服看板', '查看 AI 应答质量、解决率与坐席接待统计', null, null, '/console/service-desk-stats');
+        $registry->registerCard('sd-servicers', 'service-desk', '接待人员管理', '管理坐席列表与接待池分配', null, null, '/console/service-desk-servicers');
     }
 
     /**
