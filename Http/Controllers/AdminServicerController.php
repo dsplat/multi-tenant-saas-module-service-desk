@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace MultiTenantSaas\Modules\ServiceDesk\Http\Controllers;
 
-use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use MultiTenantSaas\Context\TenantContext;
 use MultiTenantSaas\Contracts\SupportChannelContract;
+use MultiTenantSaas\Http\Controllers\BaseController;
 use MultiTenantSaas\Services\Channel\ChannelManager;
 use Throwable;
 
@@ -25,7 +25,7 @@ use Throwable;
  *   部门 `{department_id}`             → `{type: 'department', department_id}`
  * 不归一化的话，前端迟早出现「部门被当成 userid 显示成空白」这类毛病。
  */
-class AdminServicerController extends Controller
+class AdminServicerController extends BaseController
 {
     public function __construct(
         private readonly ChannelManager $channels,

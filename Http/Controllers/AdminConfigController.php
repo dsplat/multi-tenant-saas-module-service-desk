@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace MultiTenantSaas\Modules\ServiceDesk\Http\Controllers;
 
-use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use MultiTenantSaas\Context\TenantContext;
+use MultiTenantSaas\Http\Controllers\BaseController;
 use MultiTenantSaas\Modules\ServiceDesk\Services\ServiceDeskSettings;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportAgentResolver;
 
@@ -21,7 +21,7 @@ use MultiTenantSaas\Modules\ServiceDesk\Services\SupportAgentResolver;
  * `/api/v1/agents/{id}`。两个入口写同一批字段迟早出现校验不一致
  * （一边收下非法 model 一边拒掉），所以这里只返回 Agent 引用、让控制台跳过去改。
  */
-class AdminConfigController extends Controller
+class AdminConfigController extends BaseController
 {
     public function __construct(
         private readonly ServiceDeskSettings $settings,

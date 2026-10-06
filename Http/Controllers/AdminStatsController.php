@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace MultiTenantSaas\Modules\ServiceDesk\Http\Controllers;
 
-use App\Http\Controllers\Controller;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use MultiTenantSaas\Context\TenantContext;
+use MultiTenantSaas\Http\Controllers\BaseController;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SupportStatsService;
 
 /**
@@ -19,7 +19,7 @@ use MultiTenantSaas\Modules\ServiceDesk\Services\SupportStatsService;
  * 「AI 解决」是代理口径、「首次响应」只含 AI 侧，这两点在接口里一并返回，
  * 免得看板只拿到数字却不知道数字的含义。
  */
-class AdminStatsController extends Controller
+class AdminStatsController extends BaseController
 {
     public function __construct(
         private readonly SupportStatsService $stats,

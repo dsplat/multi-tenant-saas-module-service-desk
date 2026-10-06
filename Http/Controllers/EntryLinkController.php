@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace MultiTenantSaas\Modules\ServiceDesk\Http\Controllers;
 
-use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use MultiTenantSaas\Context\TenantContext;
 use MultiTenantSaas\Contracts\SupportChannelContract;
+use MultiTenantSaas\Http\Controllers\BaseController;
 use MultiTenantSaas\Modules\ServiceDesk\Services\SceneCodeService;
 use MultiTenantSaas\Services\Channel\ChannelManager;
 use Throwable;
@@ -26,7 +26,7 @@ use Throwable;
  * 鉴权：走 `Routes/tenant.php`（api + auth:sanctum + tenant.identify）。
  * 终端用户不是 Operator，因此**不加 rbac.permission**（RBAC 只作用于 Operator）。
  */
-class EntryLinkController extends Controller
+class EntryLinkController extends BaseController
 {
     public function __construct(
         private readonly SceneCodeService $sceneCodes,

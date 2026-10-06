@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace MultiTenantSaas\Modules\ServiceDesk\Http\Controllers;
 
-use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use MultiTenantSaas\Context\TenantContext;
+use MultiTenantSaas\Http\Controllers\BaseController;
 use MultiTenantSaas\Modules\Conversation\Models\Conversation;
 use MultiTenantSaas\Modules\ServiceDesk\Services\IdentityUpgradeService;
 use MultiTenantSaas\Scopes\TenantScope;
@@ -26,7 +26,7 @@ use MultiTenantSaas\Scopes\TenantScope;
  * 核验材料由场景核验（`IdentityUpgradeContract`）；本接口只做归属校验与转发，
  * 不参与「谁是本人」的判定。
  */
-class IdentityController extends Controller
+class IdentityController extends BaseController
 {
     public function __construct(
         private readonly IdentityUpgradeService $upgrade,
