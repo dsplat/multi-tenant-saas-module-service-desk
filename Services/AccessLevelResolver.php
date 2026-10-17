@@ -7,7 +7,7 @@ namespace MultiTenantSaas\Modules\ServiceDesk\Services;
 use Illuminate\Support\Facades\Log;
 use MultiTenantSaas\Context\ActorContext;
 use MultiTenantSaas\Modules\Conversation\Models\Conversation;
-use MultiTenantSaas\Modules\ServiceDesk\Contracts\DataAccessPolicyContract;
+use MultiTenantSaas\Modules\ServiceDesk\Contracts\ServiceDeskAccessLevelPolicyContract;
 use MultiTenantSaas\Modules\ServiceDesk\Dto\ConversationContext;
 use Throwable;
 
@@ -22,7 +22,7 @@ use Throwable;
  * 判定顺序（不可调换）：
  *   1. `metadata.access_level` —— 提升结果。**只有 IdentityUpgradeService 会写它**，
  *      因此它是可信来源；用户无法通过对话内容或请求参数影响它
- *   2. 场景策略 `DataAccessPolicyContract::levelFor()`（配置了才用）
+ *   2. 场景策略 `ServiceDeskAccessLevelPolicyContract::levelFor()`（配置了才用）
  *   3. 兜底：渠道身份已关联到系统用户 → authenticated；否则 anonymous
  *
  * 铁律：**等级只能由服务端判定**，不得依据对话内容或用户自称提升 —— 用户说

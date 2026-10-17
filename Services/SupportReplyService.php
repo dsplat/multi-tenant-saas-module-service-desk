@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace MultiTenantSaas\Modules\ServiceDesk\Services;
 
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Log;
+use MultiTenantSaas\Context\ExecutionIdentity;
+use MultiTenantSaas\Context\ExecutionIdentityManager;
 use MultiTenantSaas\Context\TenantContext;
+use MultiTenantSaas\Context\TrustedExecutionInput;
 use MultiTenantSaas\Contracts\SupportChannelContract;
 use MultiTenantSaas\Modules\Ai\Models\Agent;
 use MultiTenantSaas\Modules\Ai\Services\Agent\AgentChatClient;
@@ -62,6 +66,10 @@ class SupportReplyService
      * 上下文以**会话自身的租户**为准（不依赖调用方是否设过）：由队列作业调用时固然有，
      * 但直接调用时没有，而缺上下文会让 BelongsToTenant 填不出 tenant_id
      * （NOT NULL 违反）或让 TenantScope fail-closed 静默查空。
+     *
+     * 执行身份（F-05）：本方法是 channel 父作用域的直接调用装载点。
+     * SendSupportReplyJob 已装载 service/channel 父时在父内执行；
+     * 直接调用（无父）时自建 channel 父。UserAiRuntime 再 push user_ai 子作用域。
      */
     public function handle(Conversation $conversation, Message $inbound): void
     {
@@ -69,7 +77,20 @@ class SupportReplyService
         TenantContext::setTenantId((string) $conversation->tenant_id);
 
         try {
-            $this->decide($conversation, $inbound);
+            $manager = $this->identityManager();
+
+            if ($manager->current() !== null) {
+                // Job/入口已装载父作用域：在父内执行，不重复建根
+                $this->decide($conversation, $inbound);
+
+                return;
+            }
+
+            // 直接调用：自建 channel 父作用域（toolScope 上限 = 客服 Agent 工具面）
+            $manager->runRoot(
+                $this->channelInput($conversation),
+                fn () => $this->decide($conversation, $inbound),
+            );
         } finally {
             if ($previousTenantId === null) {
                 TenantContext::clear();
@@ -485,6 +506,44 @@ class SupportReplyService
         $declared = $agent->effectiveTools();
 
         return array_values(array_intersect($allowed, $declared));
+    }
+
+    /**
+     * channel 父作用域输入（type=service, surface=channel）
+     *
+     * toolScope 上限 = 客服 Agent 声明的工具面（effectiveTools）；
+     * UserAiRuntime 的 user_ai 子作用域取「父上限 ∩ 会话应得」交集。
+     * 未配置 Agent 时上限 null（无额外限制），子作用域仍受白名单约束。
+     */
+    private function channelInput(Conversation $conversation): TrustedExecutionInput
+    {
+        $agent = $this->agents->resolveFor($conversation);
+        $ceiling = $agent !== null ? array_values($agent->effectiveTools()) : null;
+
+        return new TrustedExecutionInput(
+            identity: new ExecutionIdentity(
+                type: ExecutionIdentity::TYPE_SERVICE,
+                surface: ExecutionIdentity::SURFACE_CHANNEL,
+                subjectId: 'service-desk',
+                tenantId: (string) $conversation->tenant_id,
+                level: ExecutionIdentity::LEVEL_AUTHENTICATED,
+                authSource: 'queue',
+                toolScope: $ceiling,
+            ),
+            toolScope: $ceiling,
+        );
+    }
+
+    /**
+     * 唯一存储入口（与 ActorContext / 中间件同一绑定）
+     */
+    private function identityManager(): ExecutionIdentityManager
+    {
+        if (! App::bound(ExecutionIdentityManager::class)) {
+            App::singleton(ExecutionIdentityManager::class);
+        }
+
+        return App::make(ExecutionIdentityManager::class);
     }
 
     /**

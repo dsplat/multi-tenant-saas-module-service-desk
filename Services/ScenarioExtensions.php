@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace MultiTenantSaas\Modules\ServiceDesk\Services;
 
 use Illuminate\Support\Facades\Log;
-use MultiTenantSaas\Modules\ServiceDesk\Contracts\DataAccessPolicyContract;
 use MultiTenantSaas\Modules\ServiceDesk\Contracts\IdentityUpgradeContract;
+use MultiTenantSaas\Modules\ServiceDesk\Contracts\ServiceDeskAccessLevelPolicyContract;
 
 /**
  * 场景扩展点解析
@@ -21,11 +21,12 @@ use MultiTenantSaas\Modules\ServiceDesk\Contracts\IdentityUpgradeContract;
  */
 class ScenarioExtensions
 {
-    public function dataAccessPolicy(): ?DataAccessPolicyContract
+    public function dataAccessPolicy(): ?ServiceDeskAccessLevelPolicyContract
     {
+        // 配置键不变；旧实现（implements DataAccessPolicyContract）经继承自动兼容
         return $this->resolve(
             (string) config('service-desk.extensions.data_access_policy', ''),
-            DataAccessPolicyContract::class,
+            ServiceDeskAccessLevelPolicyContract::class,
         );
     }
 
