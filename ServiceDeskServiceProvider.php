@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace MultiTenantSaas\Modules\ServiceDesk;
 
 use Illuminate\Support\Facades\Event;
+use MultiTenantSaas\Authorization\CapabilityDefinition;
+use MultiTenantSaas\Context\ExecutionIdentity;
+use MultiTenantSaas\Contracts\AuthorizationCapabilityRegistryContract;
+use MultiTenantSaas\Contracts\CapabilityRequirementResolverContract;
 use MultiTenantSaas\Contracts\SceneRegistryContract;
 use MultiTenantSaas\Contracts\ToolAccessRequirementContract;
 use MultiTenantSaas\Contracts\ToolRegistryContract;
@@ -87,8 +91,44 @@ class ServiceDeskServiceProvider extends ModuleServiceProvider
         $this->registerChannelEventWiring();
         $this->registerReplyWiring();
         $this->registerHandoffNotificationWiring();
+        $this->registerAuthorizationCapabilities();
         $this->registerTools();
         $this->registerScenes();
+    }
+
+    /**
+     * P1 工具标注 wave2：ServiceDesk 只读能力。
+     *
+     * operator requirement 映射既有权限 `service_desk.view`：
+     * 管理面读端点 GET /service-desk/stats、GET /service-desk/config 均挂该权限
+     * （写配置才用 `service_desk.config`），故读工具同口径复用，不另造权限点。
+     */
+    private function registerAuthorizationCapabilities(): void
+    {
+        if (! $this->app->bound(AuthorizationCapabilityRegistryContract::class)) {
+            return;
+        }
+
+        $registry = $this->app->make(AuthorizationCapabilityRegistryContract::class);
+        $requirements = $this->app->bound(CapabilityRequirementResolverContract::class)
+            ? $this->app->make(CapabilityRequirementResolverContract::class)
+            : null;
+
+        $capabilities = [
+            'common.service_desk.stats' => 'service_desk.view',
+            'common.service_desk.config' => 'service_desk.view',
+        ];
+
+        foreach ($capabilities as $key => $permission) {
+            $registry->register(new CapabilityDefinition(
+                key: $key,
+                subjectTypes: [ExecutionIdentity::TYPE_OPERATOR],
+                targetScope: CapabilityDefinition::TARGET_TENANT,
+                admissionPolicy: [ExecutionIdentity::TYPE_OPERATOR => ['member']],
+            ));
+
+            $requirements?->register($key, ExecutionIdentity::TYPE_OPERATOR, ['permission' => $permission]);
+        }
     }
 
     /**
@@ -198,6 +238,7 @@ class ServiceDeskServiceProvider extends ModuleServiceProvider
             ['type' => 'object', 'properties' => ['from' => ['type' => 'string', 'description' => '起始日期 (Y-m-d)'], 'to' => ['type' => 'string', 'description' => '截止日期 (Y-m-d)']]],
             'service_desk',
             'L1',
+            requiredCapability: 'common.service_desk.stats',
         );
 
         $registry->register(
@@ -208,6 +249,7 @@ class ServiceDeskServiceProvider extends ModuleServiceProvider
             ['type' => 'object', 'properties' => []],
             'service_desk',
             'L1',
+            requiredCapability: 'common.service_desk.config',
         );
     }
 }
