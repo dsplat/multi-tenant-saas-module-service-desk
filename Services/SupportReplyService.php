@@ -73,10 +73,9 @@ class SupportReplyService
      */
     public function handle(Conversation $conversation, Message $inbound): void
     {
-        $previousTenantId = TenantContext::getId();
-        TenantContext::setTenantId((string) $conversation->tenant_id);
-
-        try {
+        // runInTenant 内部先 assertTenantId：拒绝标记/租户冲突直接终止；
+        // 已有匹配上下文时不再切换，缺失时建立并在结束（含异常）恢复空态。
+        TenantContext::runInTenant((string) $conversation->tenant_id, function () use ($conversation, $inbound): void {
             $manager = $this->identityManager();
 
             if ($manager->current() !== null) {
@@ -91,13 +90,7 @@ class SupportReplyService
                 $this->channelInput($conversation),
                 fn () => $this->decide($conversation, $inbound),
             );
-        } finally {
-            if ($previousTenantId === null) {
-                TenantContext::clear();
-            } else {
-                TenantContext::setTenantId($previousTenantId);
-            }
-        }
+        });
     }
 
     /**

@@ -86,11 +86,8 @@ class SendSupportReplyJob implements CarriesTaskAuthEnvelope, ShouldQueue
                 'error' => $e->getMessage(),
             ]);
         } finally {
-            if ($previousTenantId === null) {
-                TenantContext::clear();
-            } else {
-                TenantContext::setTenantId($previousTenantId);
-            }
+            // setTenantId(null) 即可恢复空态；不能用 clear()——它会连拒绝标记一起抹掉
+            TenantContext::setTenantId($previousTenantId);
         }
     }
 
