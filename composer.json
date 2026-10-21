@@ -5,7 +5,10 @@
   "license": "MIT",
   "require": {
     "php": "^8.3",
-    "dsplat/multi-tenant-saas": "^2.0 || ^3.0"
+    "dsplat/multi-tenant-saas": "^2.0 || ^3.0",
+    "dsplat/multi-tenant-saas-base": "^3.3",
+    "dsplat/multi-tenant-saas-module-ticket": "^3.3",
+    "dsplat/multi-tenant-saas-module-user-ai": "^3.3"
   },
   "autoload": {
     "psr-4": {
