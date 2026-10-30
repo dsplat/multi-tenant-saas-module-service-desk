@@ -1,0 +1,150 @@
+<?php
+
+declare(strict_types=1);
+
+/*
+|--------------------------------------------------------------------------
+| 智能客服模块配置
+|--------------------------------------------------------------------------
+|
+| 模块本体（通用机制）在此配置；**行业逻辑不进这里** —— 场景相关的
+| 风险词表、数据分级规则、身份核验方式，由 `extensions` 段注入实现类。
+| 见 docs/service-desk-design.md §四。
+|
+*/
+
+return [
+
+    // 路由前缀（基类加载 Routes/*.php 时统一挂在 api/v1 下）
+    'route_prefix' => '',
+
+    /*
+    | 视为「客服场景」的渠道标识
+    |
+    | 监听器与度量都据此筛选：两处各写一份的话，某天新增一个渠道就会
+    | 出现「消息接进来了但看板不统计」这类静默偏差。
+    */
+    'channels' => ['wechat-kf', 'wechat_kf'],
+
+    /*
+    | 应答行为
+    */
+    'reply' => [
+        // 用户首次发消息时立即回复的招呼语（在 AI 处理之前），降低用户等待焦虑；
+        // 只在会话的第一条用户消息时触发一次，后续消息不再发。
+        'auto_greeting' => (bool) env('SERVICE_DESK_AUTO_GREETING', true),
+        'greeting_text' => '您好，我是智能客服助手，正在为您查询，请稍候…',
+        // RAG 无命中且**未开启**自动转人工（handoff.auto_on_no_answer=false）时，回复此「提醒转人工」文案；
+        // 用户随后输入「转人工」即由 SupportReplyService::wantsHuman() 转接。可按租户在配置台改写。
+        'no_answer' => '抱歉，我暂时没有找到相关信息。您可以换个说法再问，或回复「转人工」由人工客服帮您。',
+        // 转人工（进入待接入池排队）时给用户的提示：说清「在排队、请等待、非工作时间顺延」，
+        // 避免用户被静默丢进队列无人应答（经 trans 返回的排队 code 下发，48h 内可发 1 条）
+        'handoff_notice' => '已为您转人工，正在排队等待客服接入，可能需要稍等，请耐心等待；非工作时间将顺延。',
+        // 坐席在企微客户端真正接入会话（从接待池接入）时给用户的提示：让用户知道「已有人接手」
+        // （经 session_status_change 事件的 code 下发，见 HandleChannelEvent::notifyServicerAccepted）
+        'accept_notice' => '人工客服已接入，正在为您处理，请稍候。',
+        // 转人工**失败**时的提示（不能假装已转接，否则用户在那头干等）
+        'handoff_failed_notice' => '抱歉，人工客服暂时未能接入，您可以继续问我，或稍后再试。',
+        // 命中 block 级风险时的安全文案
+        'risk_block_notice' => '抱歉，这个我帮不了您，请联系工作人员。',
+        // 人工接待中收到新消息时的静默提示（AI 不插话，但要让用户知道有人在看）
+        'human_serving_notice' => '客服人员正在为您处理，请稍候。',
+        // 带入 AI 合成的历史轮数上限（0 = 不带历史，退化为单轮）
+        'history_turns' => (int) env('SERVICE_DESK_HISTORY_TURNS', 6),
+    ],
+
+    /*
+    | 转人工触发条件
+    |
+    | 全部为「任一命中即转」；具体阈值按租户场景调整。
+    */
+    'handoff' => [
+        // 连续 N 轮未命中知识库 → 转人工
+        'max_unresolved_turns' => (int) env('SERVICE_DESK_MAX_UNRESOLVED_TURNS', 3),
+        // 答不上（检索无命中）时的处理：
+        //   false = 提醒用户手动转人工（回复 reply.no_answer 文案，用户输入「转人工」再转）
+        //   true  = 直接自动转人工（首轮未命中即转，不等 max_unresolved_turns）
+        'auto_on_no_answer' => (bool) env('SERVICE_DESK_AUTO_ON_NO_ANSWER', false),
+        // 是否允许用户主动要求转人工（关键词 + 意图）
+        'allow_visitor_request' => true,
+        // 转人工时刷新会话摘要（坐席接手时最需要「这段会话讲了什么」）
+        'summary_on_handoff' => (bool) env('SERVICE_DESK_SUMMARY_ON_HANDOFF', true),
+        // 转人工时建工单（人工队列不该是漏斗底部：要有可跟进、可统计的落点）
+        'ticket_enabled' => (bool) env('SERVICE_DESK_TICKET_ENABLED', true),
+        // 转人工时生成建议话术给坐席（每次转人工一次模型调用，可按租户关掉）
+        'suggest_replies' => (bool) env('SERVICE_DESK_SUGGEST_REPLIES', true),
+        // 坐席接入会话时是否给用户发一条「人工已接入」提示（经接入事件 code 下发）
+        'notify_on_accept' => (bool) env('SERVICE_DESK_NOTIFY_ON_ACCEPT', true),
+    ],
+
+    /*
+    | 接待态镜像
+    |
+    | 接待态由渠道（微信客服）托管，本地只做镜像写入 conversations.metadata；
+    | 一致性问题以渠道为准（回读 kf/service_state/get）。
+    */
+    'state_sync' => [
+        'enabled' => (bool) env('SERVICE_DESK_STATE_SYNC', true),
+        // 镜像字段名（写在 conversations.metadata 下）
+        'state_key' => 'service_state',
+        'state_updated_key' => 'service_state_updated_at',
+        'servicer_key' => 'servicer_userid',
+    ],
+
+    /*
+    | 身份桥接
+    |
+    | 入口带参：渠道生成带 scene 的客服链接，用户进入会话事件把 scene_param 原样带回，
+    | 后端据此把渠道身份关联到系统用户。
+    |
+    | 官方长度约束（docs/service-desk-design.md §3.2）：
+    |   scene ≤ 32 字节，字符集 [0-9a-zA-Z_-]；非空时才可用 scene_param
+    |   scene_param 需 urlencode，encode 前 ≤ 128 字节
+    */
+    'identity_bridge' => [
+        // scene 短码 TTL（秒）—— 一次性消费
+        'scene_ttl' => (int) env('SERVICE_DESK_SCENE_TTL', 900),
+        // scene 值前缀，便于在企微侧识别来源
+        'scene_prefix' => env('SERVICE_DESK_SCENE_PREFIX', 'sd'),
+        // 待绑定保留时长（秒）
+        //
+        // 比 scene_ttl 长：用户点了链接之后可能过一会儿才开口，而会话要等首条消息
+        // 才由 ConversationRouter 创建 —— 待绑定必须活到那一刻。
+        'pending_ttl' => (int) env('SERVICE_DESK_IDENTITY_PENDING_TTL', 86400),
+    ],
+
+    /*
+    | 满意度采集
+    |
+    | 用**结束语**下发文本邀评（send_msg_on_event，官方明确文本可用），用户回复命中
+    | 词表即记录。没用 msgmenu：点选回调给我们什么，官方文档未写明，不猜。
+    |
+    | prompt_on_close 默认 **false**：邀评依赖「会话结束后用户还能回复」这一行为，
+    | 该项尚未真机验证。未开启时整套采集不会触发 —— 宁可没有数据，
+    | 也不要产出一批「看起来在采集、实际永远为空」的假指标。
+    */
+    'satisfaction' => [
+        'enabled' => (bool) env('SERVICE_DESK_SATISFACTION_ENABLED', false),
+        'prompt_on_close' => (bool) env('SERVICE_DESK_SATISFACTION_PROMPT_ON_CLOSE', false),
+        'options' => ['满意', '一般', '不满意'],
+        'thanks_text' => '感谢您的反馈，祝您一切顺利。',
+    ],
+
+    /*
+    | 场景扩展点（框架定义接口，场景提供实现）
+    |
+    | 注册方式对齐框架既有的 extra_*_classes 范式（config/ai.php 的
+    | extra_template_classes / extra_chain_classes）：配置里写类名。
+    |
+    | - risk_interceptors   实现 RiskInterceptorContract，静态 inspect()；
+    |                       多个按顺序判定，任一返回 escalate/block 即生效
+    | - data_access_policy  实现 DataAccessPolicyContract（单一实现）
+    | - identity_upgrade    实现 IdentityUpgradeContract（单一实现）
+    */
+    'extensions' => [
+        'risk_interceptors' => [],
+        'data_access_policy' => null,
+        'identity_upgrade' => null,
+    ],
+
+];
